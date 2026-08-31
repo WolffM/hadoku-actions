@@ -76,3 +76,76 @@ jobs:
             exit 1
           fi
           echo "colon-less job-name refused, as it must be"
+
+  setup-pnpm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: defaults
+        uses: ./setup-pnpm
+        with:
+          npm-token: not-a-real-token
+
+      # The pins are the whole point of the action, so assert them rather than
+      # trusting that corepack did what the input said.
+      - name: the pinned versions are what actually landed
+        run: |
+          v=$(pnpm --version)
+          [ "$v" = "11.5.0" ] || { echo "::error::pnpm is $v, expected 11.5.0"; exit 1; }
+          n=$(node --version)
+          case "$n" in v22.*) ;; *) echo "::error::node is $n, expected v22.x"; exit 1 ;; esac
+          echo "pnpm $v on node $n"
+
+      # THE NPMRC MUST BE TOKENLESS. setup-node points NPM_CONFIG_USERCONFIG at
+      # the file it wrote; it has to carry the literal ${NODE_AUTH_TOKEN} for
+      # pnpm to expand at install time. A hand-written npmrc with a real token
+      # in it is what this action exists to stop repos doing.
+      - name: setup-node wrote a tokenless npmrc
+        run: |
+          [ -n "$NPM_CONFIG_USERCONFIG" ] || { echo "::error::NPM_CONFIG_USERCONFIG unset"; exit 1; }
+          [ -f "$NPM_CONFIG_USERCONFIG" ] || { echo "::error::no npmrc at $NPM_CONFIG_USERCONFIG"; exit 1; }
+          grep -qF '${NODE_AUTH_TOKEN}' "$NPM_CONFIG_USERCONFIG" \
+            || { echo "::error::npmrc is not tokenless"; exit 1; }
+          grep -qF 'npm.pkg.github.com' "$NPM_CONFIG_USERCONFIG" \
+            || { echo "::error::npmrc does not name the registry"; exit 1; }
+          echo "npmrc is tokenless and points at GitHub Packages"
+
+      # An input nothing asserts is an input that can silently stop working.
+      - name: a custom pnpm-version is honoured
+        uses: ./setup-pnpm
+        with:
+          npm-token: not-a-real-token
+          pnpm-version: 10.34.5
+      - name: assert the custom version landed
+        run: |
+          v=$(pnpm --version)
+          [ "$v" = "10.34.5" ] || { echo "::error::pnpm is $v, expected 10.34.5"; exit 1; }
+          echo "custom pin honoured"
+
+      # THE GUARD THIS ACTION EXISTS FOR. An unset secret reads as an empty
+      # string, so it must fail here rather than go green against a warm store.
+      # Proven by firing it -- a guard nothing fires reads as coverage.
+      - name: an empty credential is refused
+        id: notoken
+        continue-on-error: true
+        uses: ./setup-pnpm
+        with:
+          npm-token: ''
+
+      - name: assert the refusal actually fired
+        run: |
+          if [ "${{ steps.notoken.outcome }}" != "failure" ]; then
+            echo "::error::setup-pnpm accepted an empty registry credential"
+            exit 1
+          fi
+          echo "empty credential refused, as it must be"
+
+      # The escape hatch has to work, or a job that installs nothing from the
+      # private registry cannot use this action at all.
+      - name: assert-token false skips the check
+        uses: ./setup-pnpm
+        with:
+          npm-token: ''
+          assert-token: 'false'

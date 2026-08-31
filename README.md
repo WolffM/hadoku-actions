@@ -12,6 +12,7 @@ calling repo.
 | Action | What it does |
 | --- | --- |
 | [`report-job`](report-job/action.yml) | POSTs a job's outcome to the fleet execution log, so a red run says so itself instead of waiting for the daily digest. |
+| [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
 
 ## Use
 
@@ -41,6 +42,44 @@ credentials, it does not decide which repo gets one. Seed it with
 references it. **An unset secret reads as an empty string, not as an error**;
 the action warns and skips rather than failing your build, so check the run log
 the first time.
+
+## `setup-pnpm`
+
+```yaml
+- uses: actions/checkout@v6
+
+- uses: WolffM/hadoku-actions/setup-pnpm@v1
+  with:
+    npm-token: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+
+- name: Install
+  env:
+    NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+  run: pnpm install --frozen-lockfile
+```
+
+`node-version` (`22`), `pnpm-version` (`11.5.0`), `registry-url` and `scope`
+all default to the fleet's values. Keep `pnpm-version` equal to the repo's
+`package.json` `packageManager` — corepack is pinned by that field locally, and
+a workflow disagreeing with it is drift nothing reports.
+
+**The token goes on the install step, not on this action.** `setup-node` writes
+a TOKENLESS npmrc whose `${NODE_AUTH_TOKEN}` pnpm expands at install time. This
+action takes `npm-token` only to assert it is non-empty — an unset secret reads
+as an empty string, and on a self-hosted runner with a warm pnpm store that is
+invisible: the install resolves from cache and CI goes green having
+authenticated with nothing. hadoku-hopper did exactly that on 2026-08-24 and
+found out at publish, on another machine, as a bare 401.
+
+So **never hand-write an npmrc containing a token.** A repo whose `.npmrc` is
+not gitignored then hands its credential to any commit-back workflow it later
+gains. Deleting those hand-rolled steps is most of what adopting this action
+does.
+
+Pass `assert-token: 'false'` only for a job that installs nothing from the
+private registry. Do not add `cache: pnpm` to a caller: it makes `setup-node`
+shell out to pnpm to find the store, and corepack has to run *after*
+`setup-node`, so the two orderings are mutually exclusive.
 
 ## Why referenced, not vendored
 
@@ -76,13 +115,19 @@ Callers that cannot afford a fleet-wide break should pin a commit SHA instead of
 
 ## Self-test
 
-`.github/workflows/selftest.yml` exercises the three guards that decide whether
-a report is honest: an unset key warns rather than failing the caller, a
-cancelled outcome stays silent, and a colon-less `job-name` is refused. The
-refusal is proven by running it and asserting the step failed — a guard nothing
-fires reads as coverage.
+`.github/workflows/selftest.yml` has one job per action.
 
-**Stated gap:** every case stops before the `curl`. Exercising the POST means
+**`report-job`** — the three guards that decide whether a report is honest: an
+unset key warns rather than failing the caller, a cancelled outcome stays
+silent, and a colon-less `job-name` is refused. The refusal is proven by running
+it and asserting the step failed — a guard nothing fires reads as coverage.
+
+*Stated gap:* every case stops before the `curl`. Exercising the POST means
 writing rows to the live execution log, and a self-test that fabricates
-monitoring data is worse than one with a known gap. The real callers cover that
-path.
+monitoring data is worse than one with a known gap. The real callers cover it.
+
+**`setup-pnpm`** — that the pins actually landed (`pnpm --version`,
+`node --version`, and a custom `pnpm-version`, so an input that silently stops
+working is caught), that `setup-node` wrote a *tokenless* npmrc carrying
+`${NODE_AUTH_TOKEN}`, that an empty credential is refused — again by firing it —
+and that `assert-token: 'false'` still skips the check.

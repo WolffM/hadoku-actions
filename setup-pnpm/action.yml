@@ -1,0 +1,100 @@
+name: Set up Node and pnpm
+description: >-
+  Install Node, activate the pinned pnpm through corepack, and refuse to
+  continue without the registry credential. Does NOT install dependencies.
+
+# ORDER IS LOAD-BEARING, AND THE TWO HALVES ARE MUTUALLY EXCLUSIVE
+# ----------------------------------------------------------------
+# corepack has to run AFTER setup-node, because its shims land next to the
+# ACTIVE node. That rules out `cache: pnpm` on setup-node, which makes
+# setup-node shell out to pnpm to locate the store and therefore requires pnpm
+# to already exist. You can have one or the other, never both, and this action
+# picks the ordering that works. Do not add `cache:` here.
+#
+# corepack rather than pnpm/action-setup: that action's self-installer shares
+# one directory across every runner instance on the host and dies with
+# `ENOENT ... uv_cwd` when concurrent jobs race it. The claws run up to three
+# instances per machine, so that race is the normal case, not the edge.
+#
+# WHY THE CREDENTIAL IS ASSERTED
+# ------------------------------
+# An unset secret reads as an EMPTY STRING, not as an error. On a self-hosted
+# runner with a warm pnpm store that is INVISIBLE: `pnpm install
+# --frozen-lockfile` resolves everything from cache and CI goes green while
+# authenticating with nothing. hadoku-hopper did exactly that on its first run
+# (2026-08-24) and only found out at publish, on a different machine, as a bare
+# 401. The guard was written there and, until this action, reached one repo out
+# of thirty-four -- because propagating it meant hand-editing seventy files.
+#
+# THIS ACTION DELIBERATELY DOES NOT INSTALL, and does not put the token in the
+# environment for you. setup-node writes a TOKENLESS npmrc whose
+# `${NODE_AUTH_TOKEN}` pnpm expands at install time, so the token belongs on the
+# install step's `env:` and nowhere else. Exporting it here would make it
+# ambient for every later step in the job, which is a real downgrade for a
+# convenience nobody asked for. Never hand-write an npmrc containing a token:
+# a repo whose .npmrc is not gitignored then hands its credential to any
+# commit-back workflow it later gains.
+
+inputs:
+  node-version:
+    description: Node major to install.
+    required: false
+    default: '22'
+  pnpm-version:
+    description: >-
+      pnpm version corepack activates. Keep it equal to the repo's
+      package.json "packageManager" -- corepack is pinned by that field
+      locally, and a workflow disagreeing with it is a drift nothing reports.
+    required: false
+    default: 11.5.0
+  registry-url:
+    description: Registry setup-node writes into the tokenless npmrc.
+    required: false
+    default: https://npm.pkg.github.com
+  scope:
+    description: Package scope bound to registry-url.
+    required: false
+    default: '@wolffm'
+  npm-token:
+    description: >-
+      HADOKU_NPM_READ_TOKEN, asserted non-empty. Pass it even though this
+      action does not use the value for anything else -- an empty one is the
+      failure this exists to catch.
+    required: false
+    default: ''
+  assert-token:
+    description: >-
+      Set to 'false' ONLY for a job that installs nothing from the private
+      registry. A job that runs `pnpm install` and skips the assert is exactly
+      the false green described above.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        registry-url: ${{ inputs.registry-url }}
+        scope: ${{ inputs.scope }}
+
+    - name: Enable pnpm
+      shell: bash
+      run: |
+        corepack enable
+        corepack prepare "pnpm@${{ inputs.pnpm-version }}" --activate
+        echo "pnpm $(pnpm --version) on node $(node --version)"
+
+    - name: Assert the registry credential is present
+      if: inputs.assert-token == 'true'
+      shell: bash
+      env:
+        NPM_READ_TOKEN: ${{ inputs.npm-token }}
+      run: |
+        if [ -z "$NPM_READ_TOKEN" ]; then
+          echo "::error::HADOKU_NPM_READ_TOKEN is not set on this repository."
+          echo "::error::Seed it from an UP-TO-DATE hadoku_site checkout (the repo list is derived from scripts/child-apps.json, so a stale checkout silently skips new repos): python3 scripts/administration.py github-secrets child-repos"
+          exit 1
+        fi
+        echo "registry credential present"
