@@ -1,0 +1,78 @@
+name: Self-test
+
+# A shared action has FLEET-WIDE BLAST RADIUS: a bad push here breaks every
+# caller at once, where a vendored copy broke one. That is the trade made when
+# these files stopped being copy-pasted, and this workflow is what pays for it.
+#
+# HOSTED ON PURPOSE. This repo is public and has no runner registration, but
+# neither is the reason — a public repo executing pull-request code must not
+# touch a persistent self-hosted runner, exactly as tenhands' pages.yml is
+# hosted. If this repo ever gains a second workflow it crosses autoInclude's
+# minWorkflows threshold, enters fleet coverage, and then needs an
+# `allowHosted` entry in hadoku_site's repo-policy-manifest.json carrying this
+# reason. Until then it is outside the audit.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  report-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      # EVERY CASE BELOW STOPS BEFORE THE CURL, deliberately. The one path this
+      # cannot cover is the POST itself: exercising it means writing rows to the
+      # live execution log, and a self-test that fabricates monitoring data is
+      # worse than one with a stated gap. The real callers cover that path.
+
+      # An unset key must WARN and skip. It must never fail the job it reports
+      # on — a repo that has not been issued a service key yet still has to be
+      # able to run its CI.
+      - name: an unset service key is a warning, not a failure
+        uses: ./report-job
+        with:
+          job-name: selftest:unset-key
+          service-key: ''
+
+      # A cancelled run is concurrency superseding a push, not breakage, and
+      # must not clear a live failure streak either. Silent, and no key needed.
+      - name: a cancelled outcome is not reported
+        uses: ./report-job
+        with:
+          job-name: selftest:cancelled
+          service-key: not-a-real-key
+          outcome: cancelled
+
+      # monitoring-api derives `worker` from the prefix before the colon, so a
+      # colon-less name lands under a worker equal to the whole name, where no
+      # ?worker= query can ever find it. MUST be refused.
+      #
+      # Asserted by RUNNING it and checking the step failed. A guard nothing
+      # fires reads as coverage — this one is the reason the action carries its
+      # own copy of monitoring-api's check, so it has to be proven to fire.
+      - name: a colon-less job-name is refused
+        id: colonless
+        continue-on-error: true
+        uses: ./report-job
+        with:
+          job-name: nocolon
+          service-key: not-a-real-key
+
+      - name: assert the refusal actually fired
+        run: |
+          if [ "${{ steps.colonless.outcome }}" != "failure" ]; then
+            echo "::error::report-job accepted a colon-less job-name"
+            exit 1
+          fi
+          echo "colon-less job-name refused, as it must be"

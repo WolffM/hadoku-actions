@@ -1,0 +1,138 @@
+name: Report job outcome
+description: >-
+  POST this job's outcome to the fleet execution log, so a silent failure cannot
+  hide. Never fails the job it reports on.
+
+# WHY A JOB REPORTS AT ALL
+# ------------------------
+# Nothing polls these repos' workflows — monitoring-api's ci-check list is
+# derived from the fleet roster and does not cover every repo — so a red run is
+# seen by exactly nobody unless it says so itself. On 2026-08-04 hadoku-task's
+# auto-update failed ten times in a row and told no one until the next daily
+# digest.
+#
+# `POST /health/api/jobs` is the fleet's ONE alerting path. monitoring-api hangs
+# the Discord alert on the outcome itself (job-alerts.ts), throttled to one
+# reminder per 24h with a recovery notice when it goes green, and folds it into
+# the `crons` domain of `GET /health/api/sitrep` — so a repo goes red where the
+# operator already looks. Routing is hadoku_site's business; a repo's job is to
+# be honest about its own state.
+#
+# NOT `/health/api/telemetry`. That path writes the ledger and alerts nobody,
+# which is the same silence this action exists to end.
+#
+# `always()` at the call site so RECOVERIES are reported too: without the
+# success side the alert state stays broken, and the next real failure arrives
+# as a suppressed reminder rather than a new alert. `always()` is not total,
+# though — it cannot cover the runner process dying, because then there is
+# nothing left to evaluate a condition. That class is covered from outside, by a
+# caller reporting the PREVIOUS run (see tenhands taskauto.yml).
+#
+# WHY THIS LIVES IN ITS OWN PUBLIC REPO
+# -------------------------------------
+# It began as six near-identical copies of the same curl+jq across three repos,
+# and they had already drifted: an unset-key guard in one and not another, two
+# different duration sources, three different error strings. Vendoring the file
+# per repo (2026-08-30) collapsed the drift but not the duplication, and that
+# left two costs.
+#
+# A local `uses: ./.github/actions/...` is a PATH INTO THE WORKSPACE, so every
+# caller must run actions/checkout first. tenhands' deploy.yml is a pure
+# dispatch job that needs no checkout, and it went red the moment it gained this
+# step — 2026-08-30, and the failure was in the reporter that exists so a silent
+# failure cannot hide. Referenced instead of vendored, the runner fetches this
+# before the job's first step, so that bug cannot be written.
+#
+# And wiring a new repo meant hand-copying 5.5KB, which nobody does 21 times:
+# 21 of the 26 repos in fleet coverage reported nothing at all, including
+# hadoku-fleet-manager, whose CI sat red for 46 runs across ten hours with the
+# daily digest as the first and only notice. Adding a repo is now five lines.
+#
+# BLAST RADIUS IS THE TRADE. A bad push here breaks every caller at once, where
+# a vendored copy broke one. `v1` is therefore a RELEASE TAG, moved deliberately
+# after the self-test passes — never a branch alias. See README.md.
+
+inputs:
+  job-name:
+    description: 'Execution-log job name, "worker:job" (the colon is required).'
+    required: true
+  service-key:
+    description: >-
+      This repo's service-tier registry key, sent as X-User-Key. A missing key
+      warns and skips rather than failing the run.
+    required: true
+  outcome:
+    description: 'The job status to translate. Defaults to the calling job''s.'
+    required: false
+    default: ${{ job.status }}
+  started-at:
+    description: >-
+      Epoch seconds the job began, for duration_ms. Set it in the first step
+      with `echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"`. Omitted
+      means duration 0.
+    required: false
+    default: ''
+  error-message:
+    description: 'Error text recorded on failure. Defaults to a link to the run.'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        JOB_NAME: ${{ inputs.job-name }}
+        SERVICE_KEY: ${{ inputs.service-key }}
+        OUTCOME: ${{ inputs.outcome }}
+        STARTED_AT: ${{ inputs.started-at }}
+        ERROR_MESSAGE: ${{ inputs.error-message }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -u
+        # A cancel (concurrency superseded the run) is not breakage, and must
+        # not clear a live failure streak either — stay silent.
+        case "$OUTCOME" in
+          success) status=succeeded ;;
+          failure) status=failed ;;
+          *) echo "outcome=$OUTCOME — not reported"; exit 0 ;;
+        esac
+
+        if [ -z "$SERVICE_KEY" ]; then
+          echo "::warning::service key unset — $JOB_NAME outcome not reported"
+          exit 0
+        fi
+
+        # `worker:job`. monitoring-api derives `worker` from the prefix, and a
+        # colon-less name lands under a worker equal to the whole name where no
+        # ?worker= query can find it. Its own guard for this could not fire
+        # until 2026-08-30, so say it here too.
+        case "$JOB_NAME" in
+          *:*) ;;
+          *) echo "::error::job-name must be \"worker:job\", got '$JOB_NAME'"; exit 1 ;;
+        esac
+
+        if [ -n "$STARTED_AT" ]; then
+          duration_ms=$(( ($(date -u +%s) - STARTED_AT) * 1000 ))
+        else
+          duration_ms=0
+        fi
+
+        err="${ERROR_MESSAGE:-$JOB_NAME failed — $RUN_URL}"
+
+        # run_id is `gha_<run id>`, and POST /health/api/jobs UPSERTS on it, so a
+        # second write for the same run updates the row rather than inventing a
+        # second failure.
+        jq -n --arg st "$status" --arg run "gha_$RUN_ID" --arg name "$JOB_NAME" \
+              --arg err "$err" --argjson d "$duration_ms" \
+          '{job_name: $name, status: $st, run_id: $run, duration_ms: $d}
+           + (if $st == "failed" then {error: $err} else {} end)' > /tmp/report-job.json
+
+        # Never fail the job over a reporting blip. `-f` so a non-2xx shows.
+        curl -sS -f -X POST https://hadoku.me/health/api/jobs \
+          -H "X-User-Key: $SERVICE_KEY" \
+          -H 'Content-Type: application/json' \
+          --data @/tmp/report-job.json \
+          && echo "reported $JOB_NAME=$status (${duration_ms}ms)" \
+          || echo "::warning::could not report $JOB_NAME to monitoring-api"
