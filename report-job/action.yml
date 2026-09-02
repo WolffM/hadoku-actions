@@ -124,7 +124,20 @@ runs:
         # run_id is `gha_<run id>`, and POST /health/api/jobs UPSERTS on it, so a
         # second write for the same run updates the row rather than inventing a
         # second failure.
-        jq -n --arg st "$status" --arg run "gha_$RUN_ID" --arg name "$JOB_NAME" \
+          # The key must identify a JOB within a run, not the run. `gha_<run id>`
+          # alone meant every reporting job in one workflow wrote the SAME row and
+          # the last one won — observed 2026-09-02, where
+          # site:deploy-workers:detect-changes was overwritten by
+          # site:deploy-worker:jobplatform-api. Across a matrix that is a false
+          # green: a failed worker's row replaced by a later worker's success.
+          #
+          # The slug keeps the property the upsert exists for — the SAME job
+          # re-posting for the same run still updates its own row rather than
+          # inventing a second failure, which is what tenhands' taskauto relies on
+          # when it posts a previous run's conclusion — while giving each job its
+          # own row. The value stays opaque; nothing parses it back to a run number.
+          slug=$(printf '%s' "$JOB_NAME" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')
+        jq -n --arg st "$status" --arg run "gha_${RUN_ID}_${slug}" --arg name "$JOB_NAME" \
               --arg err "$err" --argjson d "$duration_ms" \
           '{job_name: $name, status: $st, run_id: $run, duration_ms: $d}
            + (if $st == "failed" then {error: $err} else {} end)' > /tmp/report-job.json
