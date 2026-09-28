@@ -1,0 +1,181 @@
+name: Set up Python in an isolated venv
+description: >-
+  Resolve the interpreter through actions/setup-python, then build a throwaway
+  venv under RUNNER_TEMP, install the project into it, and prove nothing
+  resolved from outside it. Leaves the venv first on PATH.
+
+# WHY A VENV, ON TOP OF setup-python
+# ----------------------------------
+# `hadoku-builder` is self-hosted, and its tool cache is NOT per-run scratch: it
+# is a persistent interpreter that every job on the box shares, provisioned
+# differently per machine. hadoku-scraper caught this on 2026-09-24 -- two runs
+# of one unchanged workflow resolved their dependencies from two different
+# places (claw-8: ~/.local/lib/python3.11/site-packages, claw-2:
+# ~/.local/share/uv/python/cpython-3.11.15-.../site-packages). Installing into
+# that interpreter costs three separate things:
+#
+#   1. NOT HERMETIC. pip answers "already satisfied" against whatever the box
+#      holds, so pyproject.toml's constraints are never enforced. That run
+#      linted with a ruff nobody had chosen.
+#   2. MISSING CONSOLE SCRIPTS. An install that is skipped writes no entry
+#      point, and ~/.local/bin is not on PATH -- `ruff: command not found`,
+#      exit 127, on a box where ruff was installed the whole time.
+#   3. CROSS-JOB DAMAGE. It mutates a machine other repos build on. That same
+#      run uninstalled rich 15.0.0 and put 13.9.4 in its place. The claws run up
+#      to three slots per box against one $HOME, so this is the normal case.
+#
+# A venv answers all three: ENABLE_USER_SITE is False and the base interpreter's
+# site-packages are not inherited, so every dependency resolves from the project
+# metadata on every run, the entry points exist because WE wrote them, and
+# nothing outside RUNNER_TEMP is touched. It also retires
+# --break-system-packages, which only ever existed to force writes into the
+# shared interpreter this stops using.
+#
+# THIS IS NOT THE 2026-09-02 WORKAROUND, which hadoku-pygmalion reverted in
+# f9a66cc and still warns about in tests.yml. That one DROPPED setup-python for
+# the runner's system python3 and needed a venv because system python3 has no
+# pip -- it worked around a node missing the `python-toolcache` capability, and
+# so hid fleet drift the fleet exists to fix. setup-python still runs here,
+# first, exactly as the fleet contract requires: a node without the toolcache
+# still fails loudly and still gets fixed by the fleet. What changes is only
+# WHERE PACKAGES LAND, which the fleet does not manage and which is currently a
+# shared mutable directory.
+#
+# RUNNER_TEMP rather than the checkout, per hadoku-dataplatform: a venv in the
+# working tree is one `git clean` or one stray commit away from being someone
+# else's problem, and it keeps `ruff check .` from walking it.
+
+inputs:
+  python-version:
+    description: >-
+      Python the fleet's toolcache must provide. Keep it equal to the repo's
+      requires-python floor and to `[tool.ruff] target-version` -- a workflow
+      that disagrees with them is drift nothing reports.
+    required: false
+    default: '3.11'
+  cache:
+    description: >-
+      Passed to setup-python. 'pip' caches the wheel downloads, which is still
+      worth it: the venv is rebuilt every run, so every wheel is re-installed
+      every run and only the download is saved. Set to '' to disable.
+    required: false
+    default: pip
+  install:
+    description: >-
+      Target for `pip install -e`. Set to '' to create the venv and install
+      nothing, for a job that pins its own tools.
+    required: false
+    default: '.[dev]'
+  assert-imports:
+    description: >-
+      Space-separated modules asserted to resolve inside the venv (or, for the
+      editable package itself, inside the checkout). This is the step that keeps
+      the fix fixed -- a regression to the shared interpreter is otherwise
+      invisible until the day a machine's $HOME drifts and a step dies with 127.
+      Name the tools the job actually runs, plus the project package itself.
+      THIRD-PARTY NAMES ONLY: the stdlib lives in the base interpreter, so
+      passing `json` here fails by design rather than telling you anything.
+    required: false
+    default: ''
+
+outputs:
+  python:
+    description: Absolute path to the venv interpreter.
+    value: ${{ steps.venv.outputs.python }}
+  venv:
+    description: Absolute path to the venv root.
+    value: ${{ steps.venv.outputs.venv }}
+
+runs:
+  using: composite
+  steps:
+    # FIRST, and not optional. The fleet manager probes every managed node for
+    # the `python-toolcache` capability so this works on the claws; a node
+    # without it is drift for the fleet to fix, and this action must keep
+    # surfacing that rather than quietly routing around it.
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache }}
+
+    - name: Build the venv
+      id: venv
+      shell: bash
+      run: |
+        set -euo pipefail
+        venv="$RUNNER_TEMP/venv"
+        # ensurepip, NOT venv: `venv` is stdlib and imports fine even on a box
+        # that cannot build one, because Debian splits the pip bootstrap into
+        # python3-venv. Checking the wrong one passes and then `python -m venv`
+        # fails two lines later with the real reason.
+        python -c 'import ensurepip' 2>/dev/null || {
+          echo "::error::This runner cannot create a venv: ensurepip is missing."
+          echo "::error::Fix the RUNNER, not the workflow."
+          exit 1
+        }
+        python -m venv "$venv"
+        "$venv/bin/python" -m pip install --quiet --upgrade pip
+        echo "python=$venv/bin/python" >> "$GITHUB_OUTPUT"
+        echo "venv=$venv" >> "$GITHUB_OUTPUT"
+        # Prepended, so a later `python -m ruff` is the VENV's python. This is
+        # safe in a way the bare console script never was: the entry point is
+        # here because this action just created it, and the assert below proves
+        # the resolution rather than assuming it.
+        echo "$venv/bin" >> "$GITHUB_PATH"
+
+    - name: Install the project
+      if: inputs.install != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        # No --break-system-packages. A venv is not externally managed, and the
+        # flag's only effect would be to make a future reader think it is.
+        "${{ steps.venv.outputs.python }}" -m pip install -e "${{ inputs.install }}"
+
+    - name: Assert nothing resolved outside the venv
+      shell: bash
+      env:
+        ASSERT_IMPORTS: ${{ inputs.assert-imports }}
+      run: |
+        set -euo pipefail
+        "${{ steps.venv.outputs.python }}" - <<'PY'
+        import os, pathlib, site, sys
+
+        venv = pathlib.Path(sys.prefix).resolve()
+        cwd = pathlib.Path.cwd().resolve()
+
+        if sys.prefix == sys.base_prefix:
+            raise SystemExit("::error::not running inside a venv")
+        if site.ENABLE_USER_SITE:
+            raise SystemExit("::error::user site-packages is enabled; the shared $HOME is reachable")
+
+        print(f"venv   {venv}")
+        print(f"python {sys.version.split()[0]}")
+
+        failed = False
+        for name in os.environ.get("ASSERT_IMPORTS", "").split():
+            try:
+                mod = __import__(name)
+            except ImportError as exc:
+                print(f"::error::{name} is not importable in the venv: {exc}")
+                failed = True
+                continue
+            # A namespace package has no __file__; nothing to locate, and
+            # nothing that could have come from a shared site-packages either.
+            origin = getattr(mod, "__file__", None)
+            if origin is None:
+                print(f"{name:16} (namespace package, no file)")
+                continue
+            where = pathlib.Path(origin).resolve()
+            # The project itself is installed -e, so it lives in the CHECKOUT,
+            # not the venv. What matters is that it is ours and not a stray copy
+            # another job left in a shared site-packages.
+            if venv not in where.parents and cwd not in where.parents:
+                print(f"::error::{name} resolved outside the venv: {where}")
+                failed = True
+                continue
+            print(f"{name:16} {where}")
+
+        if failed:
+            raise SystemExit(1)
+        PY
