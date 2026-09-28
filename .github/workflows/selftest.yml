@@ -149,3 +149,118 @@ jobs:
         with:
           npm-token: ''
           assert-token: 'false'
+
+  setup-python-venv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      # A real installable package, because `install` taking an editable target
+      # is half the action and a self-test that only ever passes '' would not
+      # notice it breaking. `./pkg[dev]` also covers the extras syntax, which is
+      # what every caller in the fleet actually passes.
+      - name: a throwaway package for the install path
+        run: |
+          mkdir -p pkg/selftest_pkg
+          echo 'VALUE = "from the checkout"' > pkg/selftest_pkg/__init__.py
+          cat > pkg/pyproject.toml <<'TOML'
+          [project]
+          name = "selftest-pkg"
+          version = "0.0.0"
+          requires-python = ">=3.11"
+          [project.optional-dependencies]
+          dev = ["ruff==0.16.9"]
+          TOML
+
+      # cache: '' because setup-python's pip cache hashes a dependency file and
+      # this repo has none at its root. Callers with a pyproject leave it alone.
+      - name: build the venv and install
+        id: env
+        uses: ./setup-python-venv
+        with:
+          cache: ''
+          install: './pkg[dev]'
+          assert-imports: ruff selftest_pkg
+
+      # The outputs are a contract; a caller that wants to be explicit uses them
+      # instead of relying on PATH.
+      - name: the outputs point at a real interpreter
+        run: |
+          py='${{ steps.env.outputs.python }}'
+          venv='${{ steps.env.outputs.venv }}'
+          [ -x "$py" ] || { echo "::error::outputs.python is not executable: $py"; exit 1; }
+          [ -d "$venv" ] || { echo "::error::outputs.venv is not a directory: $venv"; exit 1; }
+          case "$py" in "$RUNNER_TEMP"/*) ;; *) echo "::error::venv is not under RUNNER_TEMP: $py"; exit 1 ;; esac
+          echo "$("$py" --version) at $py"
+
+      # THE PATH PROMISE. The action prepends the venv's bin, so a later bare
+      # `python` is the venv's — this is what lets every caller in the fleet
+      # write the same `python -m ruff` regardless of how the box is set up.
+      - name: a later step's bare `python` is the venv's
+        run: |
+          python - <<'PY'
+          import sys
+          if sys.prefix == sys.base_prefix:
+              raise SystemExit(f"::error::bare python is not the venv: {sys.executable}")
+          print(f"bare python -> {sys.executable}")
+          PY
+
+      # And the console script, which is the exact thing whose absence produced
+      # `ruff: command not found` (exit 127) in hadoku-scraper on 2026-09-24.
+      - name: the console script exists and is the pinned one
+        run: |
+          v=$(ruff --version)
+          [ "$v" = "ruff 0.16.9" ] || { echo "::error::ruff is '$v', expected 'ruff 0.16.9'"; exit 1; }
+          echo "$v, and it is on PATH"
+
+      - name: install can be skipped
+        uses: ./setup-python-venv
+        with:
+          cache: ''
+          install: ''
+
+  # The guard, in its own job: it has to meet a runner with no venv already at
+  # $RUNNER_TEMP/venv, which the job above leaves behind.
+  setup-python-venv-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      # Asserted by RUNNING it and checking the step failed. The isolation
+      # assert is the entire reason this action is more than three lines of
+      # shell, so a version of it that cannot fail would be worse than none.
+      #
+      # `json` is the probe because the stdlib genuinely lives in the BASE
+      # interpreter, outside the venv — it is the honest shape of the thing
+      # being guarded against, not a contrived input.
+      - name: a module resolving outside the venv is refused
+        id: outside
+        continue-on-error: true
+        uses: ./setup-python-venv
+        with:
+          cache: ''
+          install: ''
+          assert-imports: json
+
+      - name: a module that is not installed at all is refused
+        id: missing
+        continue-on-error: true
+        uses: ./setup-python-venv
+        with:
+          cache: ''
+          install: ''
+          assert-imports: definitely_not_installed
+
+      - name: assert both refusals actually fired
+        run: |
+          fail=0
+          if [ "${{ steps.outside.outcome }}" != "failure" ]; then
+            echo "::error::a module from outside the venv was accepted"; fail=1
+          fi
+          if [ "${{ steps.missing.outcome }}" != "failure" ]; then
+            echo "::error::a missing module was accepted"; fail=1
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+          echo "the isolation assert fires on both shapes"

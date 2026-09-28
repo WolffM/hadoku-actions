@@ -13,6 +13,7 @@ calling repo.
 | --- | --- |
 | [`report-job`](report-job/action.yml) | POSTs a job's outcome to the fleet execution log, so a red run says so itself instead of waiting for the daily digest. |
 | [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
+| [`setup-python-venv`](setup-python-venv/action.yml) | setup-python on the fleet's toolcache, then a throwaway venv under `RUNNER_TEMP` — so CI stops installing into an interpreter the whole box shares. |
 
 ## Use
 
@@ -81,6 +82,53 @@ private registry. Do not add `cache: pnpm` to a caller: it makes `setup-node`
 shell out to pnpm to find the store, and corepack has to run *after*
 `setup-node`, so the two orderings are mutually exclusive.
 
+## `setup-python-venv`
+
+```yaml
+- uses: actions/checkout@v6
+
+- uses: WolffM/hadoku-actions/setup-python-venv@v1
+  with:
+    assert-imports: ruff mypy pytest my_package
+
+- name: Ruff
+  run: python -m ruff check .
+
+- name: Tests
+  run: python -m pytest -q
+```
+
+`python-version` (`3.11`), `cache` (`pip`) and `install` (`.[dev]`) default to
+the fleet's values. The action prepends the venv to `PATH`, so a later bare
+`python` is the venv's and every repo can write the same command. Prefer the
+`python` output (`${{ steps.<id>.outputs.python }}`) where you want it explicit.
+
+**Why a venv on top of `setup-python`.** `hadoku-builder` is self-hosted, and
+its tool cache is not per-run scratch — it is a persistent interpreter every job
+on the box shares, provisioned differently per machine. hadoku-scraper ran one
+unchanged workflow twice and resolved its dependencies from two different
+directories (claw-8's `~/.local`, claw-2's uv python). Installing there is not
+hermetic: pip answers *already satisfied* against whatever the box holds, so
+`pyproject.toml`'s constraints go unenforced. It drops console scripts, because
+an install that is skipped writes no entry point and `~/.local/bin` is not on
+`PATH` — that is the `ruff: command not found`, exit 127, that reddened
+scraper's `main` on 2026-09-24 with ruff installed the whole time. And it
+mutates a machine other repos build on: that run uninstalled `rich` 15.0.0 and
+put 13.9.4 in its place, under up to three runner slots sharing one `$HOME`.
+
+**This is not the workaround pygmalion reverted** in `f9a66cc`, and whose
+warning still sits in its `tests.yml`. That one *dropped* `setup-python` for the
+runner's system `python3` and needed a venv because system `python3` has no pip
+— it routed around a node missing the `python-toolcache` capability and so hid
+drift the fleet exists to fix. `setup-python` still runs here, first, and a node
+without the toolcache still fails loudly. The fleet keeps owning *which* python.
+This owns only *where packages land*, which the fleet does not manage.
+
+`assert-imports` is the step that keeps this fixed — a regression to the shared
+interpreter looks exactly like a passing build until the day a machine's `$HOME`
+drifts. Name third-party packages and your own; the stdlib lives in the base
+interpreter and fails by design.
+
 ## Why referenced, not vendored
 
 A local `uses: ./.github/actions/...` is a path into the workspace, so every
@@ -115,7 +163,8 @@ Callers that cannot afford a fleet-wide break should pin a commit SHA instead of
 
 ## Self-test
 
-`.github/workflows/selftest.yml` has one job per action.
+`.github/workflows/selftest.yml` has a job per action, and a second one for
+`setup-python-venv`'s guard.
 
 **`report-job`** — the three guards that decide whether a report is honest: an
 unset key warns rather than failing the caller, a cancelled outcome stays
@@ -125,6 +174,15 @@ it and asserting the step failed — a guard nothing fires reads as coverage.
 *Stated gap:* every case stops before the `curl`. Exercising the POST means
 writing rows to the live execution log, and a self-test that fabricates
 monitoring data is worse than one with a known gap. The real callers cover it.
+
+**`setup-python-venv`** — two jobs, because the guard has to meet a runner with
+no venv already under `RUNNER_TEMP`. The first installs a throwaway package with
+an extras target, then asserts the contract a caller depends on: the outputs
+point at a real interpreter under `RUNNER_TEMP`, a later bare `python` is the
+venv's, and the pinned `ruff` console script is on `PATH` — the exact artifact
+whose absence is exit 127. The second fires the isolation assert both ways, a
+module living outside the venv and a module missing entirely, and fails if
+either was accepted.
 
 **`setup-pnpm`** — that the pins actually landed (`pnpm --version`,
 `node --version`, and a custom `pnpm-version`, so an input that silently stops
