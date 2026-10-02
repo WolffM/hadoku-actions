@@ -98,8 +98,11 @@ shell out to pnpm to find the store, and corepack has to run *after*
   run: python -m pytest -q
 ```
 
-`python-version` (`3.11`), `cache` (`pip`) and `install` (`.[dev]`) default to
-the fleet's values. The action prepends the venv to `PATH`, so a later bare
+`python-version` (`3.11`), `cache` (off) and `install` (`.[dev]`) default to
+the fleet's values. `cache` is off because the self-hosted runner's
+`~/.cache/pip` already persists, and setup-python's `cache: pip` archives that
+whole shared directory: 5.8 GB on 2026-10-01, which cost 20 minutes to *fail*
+to restore. The action prepends the venv to `PATH`, so a later bare
 `python` is the venv's and every repo can write the same command. Prefer the
 `python` output (`${{ steps.<id>.outputs.python }}`) where you want it explicit.
 

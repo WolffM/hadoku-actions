@@ -55,11 +55,18 @@ inputs:
     default: '3.11'
   cache:
     description: >-
-      Passed to setup-python. 'pip' caches the wheel downloads, which is still
-      worth it: the venv is rebuilt every run, so every wheel is re-installed
-      every run and only the download is saved. Set to '' to disable.
+      Passed to setup-python. Off by default, and leave it off on hadoku-builder:
+      pip already keeps its wheel cache in the runner's persistent ~/.cache/pip,
+      so a GitHub cache adds nothing but a round trip. Worse, setup-python
+      archives that WHOLE directory -- every repo's wheels on the box, not this
+      project's -- so the archive grows without bound. On 2026-10-01 it was
+      5.8 GB, restored at ~6 MB/s, hit the 10-minute download timeout at 66%,
+      and then failed anyway: 20 of hadoku-scraper's 22 CI minutes, against
+      31 seconds for the install itself. Long CI also widens the window in which
+      a newer push cancels the run under cancel-in-progress. Set to 'pip' only
+      on an ephemeral runner, where nothing persists between jobs.
     required: false
-    default: pip
+    default: ''
   install:
     description: >-
       Target for `pip install -e`. Set to '' to create the venv and install
