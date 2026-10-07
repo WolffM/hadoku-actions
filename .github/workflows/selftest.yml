@@ -84,9 +84,18 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: defaults
+        id: defaults
         uses: ./setup-pnpm
         with:
           npm-token: not-a-real-token
+
+      # Without vault-key the output IS npm-token, so a caller can move its
+      # install step onto the output before it adopts the vault.
+      - name: without vault-key the output is npm-token
+        run: |
+          [ "${{ steps.defaults.outputs.npm-token }}" = "not-a-real-token" ] \
+            || { echo "::error::npm-token output did not pass the input through"; exit 1; }
+          echo "output passes the input through"
 
       # The pins are the whole point of the action, so assert them rather than
       # trusting that corepack did what the input said.
@@ -149,6 +158,108 @@ jobs:
         with:
           npm-token: ''
           assert-token: 'false'
+
+      # ── the vault path ───────────────────────────────────────────────────
+      # Against a stand-in broker: the real one is behind hadoku.me and a
+      # public repo's hosted runner has no business holding a service key.
+      - name: start stand-in brokers
+        run: |
+          python3 .github/selftest/fake-broker.py ok 5297 &
+          python3 .github/selftest/fake-broker.py deny 5298 &
+          for p in 5297 5298; do
+            for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$p/" && break; sleep 0.25; done
+          done
+
+      - name: vault-key reads the token from the broker
+        id: vault
+        uses: ./setup-pnpm
+        with:
+          npm-token: fallback-token
+          vault-key: selftest-key
+          vault-broker: http://127.0.0.1:5297
+      - name: assert the vault value won over the fallback
+        run: |
+          [ "${{ steps.vault.outputs.npm-token }}" = "tok-from-vault" ] \
+            || { echo "::error::expected the vault value, got something else"; exit 1; }
+          echo "vault value used"
+
+      # THE POLICY THAT MATTERS. A 403 is the broker answering "no" -- a missing
+      # grant or a retired key. Falling back would hide it behind a stale copy
+      # for weeks, so it must FAIL even though a fallback is right there.
+      - name: a broker refusal (403) is not papered over
+        id: denied
+        continue-on-error: true
+        uses: ./setup-pnpm
+        with:
+          npm-token: fallback-token
+          vault-key: selftest-key
+          vault-broker: http://127.0.0.1:5298
+      - name: assert the refusal failed the step
+        run: |
+          if [ "${{ steps.denied.outcome }}" != "failure" ]; then
+            echo "::error::a 403 from the broker fell back instead of failing"
+            exit 1
+          fi
+          echo "403 failed loudly, as it must"
+
+      # An UNREACHABLE broker is transport, not authorization: fall back (with a
+      # warning) so a hosted-runner failover still installs.
+      - name: an unreachable broker falls back
+        id: unreachable
+        uses: ./setup-pnpm
+        with:
+          npm-token: fallback-token
+          vault-key: selftest-key
+          vault-broker: http://127.0.0.1:9
+      - name: assert the fallback was used
+        run: |
+          [ "${{ steps.unreachable.outputs.npm-token }}" = "fallback-token" ] \
+            || { echo "::error::unreachable broker did not fall back"; exit 1; }
+          echo "fell back to npm-token"
+
+  vault-fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: start stand-in brokers
+        run: |
+          python3 .github/selftest/fake-broker.py ok 5297 &
+          python3 .github/selftest/fake-broker.py deny 5298 &
+          for p in 5297 5298; do
+            for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$p/" && break; sleep 0.25; done
+          done
+
+      - name: fetch two keys into the environment
+        uses: ./vault-fetch
+        with:
+          keys: FIRST_SECRET, SECOND_SECRET
+          broker: http://127.0.0.1:5297
+        env:
+          HADOKU_VAULT_KEY: selftest-key
+      - name: assert both landed in GITHUB_ENV
+        run: |
+          [ "$FIRST_SECRET" = "tok-from-vault" ] && [ "$SECOND_SECRET" = "tok-from-vault" ] \
+            || { echo "::error::vault-fetch did not export both keys"; exit 1; }
+          echo "both keys exported"
+
+      - name: a refusal fails even with a fallback set
+        id: denied
+        continue-on-error: true
+        uses: ./vault-fetch
+        with:
+          keys: FIRST_SECRET
+          broker: http://127.0.0.1:5298
+        env:
+          HADOKU_VAULT_KEY: selftest-key
+          VAULT_FALLBACK_FIRST_SECRET: stale-copy
+      - name: assert the refusal failed the step
+        run: |
+          if [ "${{ steps.denied.outcome }}" != "failure" ]; then
+            echo "::error::vault-fetch fell back on a 403"
+            exit 1
+          fi
+          echo "403 failed loudly"
 
   setup-python-venv:
     runs-on: ubuntu-latest

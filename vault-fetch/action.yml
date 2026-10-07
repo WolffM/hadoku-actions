@@ -1,0 +1,54 @@
+name: Fetch secrets from the hadoku vault
+description: >-
+  Fetch named secrets from the vault broker into GITHUB_ENV, falling back to a
+  GH Secret ONLY when the broker cannot be reached. Same interface as the
+  hadoku_site-local action it replaces; the logic lives in fetch.sh, shared
+  with setup-pnpm.
+
+inputs:
+  keys:
+    description: Comma-separated vault item names to fetch.
+    required: true
+  broker:
+    description: Vault broker base URL.
+    required: false
+    default: https://hadoku.me/mgmt
+  vault-key-env:
+    description: >-
+      Name of the env var holding the caller's service key. Default
+      'HADOKU_VAULT_KEY'.
+    required: false
+    default: HADOKU_VAULT_KEY
+
+# LAST-RESORT FALLBACK — set VAULT_FALLBACK_<NAME> in the calling step's env.
+# Used if, and only if, the broker could not be REACHED or declared itself not
+# ready (non-JSON body, 5xx, 503). A 403/404 is the broker answering "no" — a
+# missing grant or a retired key — and always fails, because masking it is how a
+# repo ends up on a stale credential for weeks. Full history: fetch.sh.
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch from vault broker
+      shell: bash
+      env:
+        VAULT_FETCH_KEYS: ${{ inputs.keys }}
+        VAULT_BROKER: ${{ inputs.broker }}
+        VAULT_FETCH_KEY_ENV: ${{ inputs.vault-key-env }}
+      run: |
+        set -euo pipefail
+        export HADOKU_VAULT_KEY="${!VAULT_FETCH_KEY_ENV:-}"
+        out="$RUNNER_TEMP/vault-fetch.$$"
+        IFS=',' read -ra NAMES <<< "$VAULT_FETCH_KEYS"
+        n=0
+        for raw in "${NAMES[@]}"; do
+          name=$(echo "$raw" | xargs)
+          [ -z "$name" ] && continue
+          fb_var="VAULT_FALLBACK_${name}"
+          VAULT_FALLBACK="${!fb_var:-}" bash "$GITHUB_ACTION_PATH/fetch.sh" "$name" "$out"
+          delim="EOF_VAULT_$(date +%s%N)"
+          { echo "${name}<<${delim}"; cat "$out"; echo; echo "${delim}"; } >> "$GITHUB_ENV"
+          rm -f "$out"
+          n=$((n + 1))
+        done
+        echo "Fetched ${n} secret(s) from $VAULT_BROKER"

@@ -26,6 +26,23 @@ description: >-
 # 401. The guard was written there and, until this action, reached one repo out
 # of thirty-four -- because propagating it meant hand-editing seventy files.
 #
+# WHERE THE TOKEN COMES FROM
+# --------------------------
+# Pass `vault-key` (the repo's KEY_SERVICE_<REPO>) and the token is read from
+# the vault broker AT JOB TIME, with `npm-token` kept only as the fallback for an
+# UNREACHABLE broker (a 403/404 still fails — see vault-fetch/fetch.sh). Without
+# `vault-key`, the output is simply `npm-token`.
+#
+# Why: HADOKU_NPM_READ_TOKEN used to live only as a GH Secret copied into ~20
+# repos, and a rotation reaches them one repo at a time. On 2026-10-07 the old
+# value died at 19:13:25 and the sweep finished at 19:14:24; every job that
+# started in between 401'd (four update-wolffm runs, a deploy, an auto-update),
+# and nothing retried them. Read from the vault, a rotation is one write that
+# every subsequent job sees.
+#
+# Either way, take the token from this action's `npm-token` OUTPUT on the
+# install step, so the same line works before and after a repo adopts the vault.
+#
 # THIS ACTION DELIBERATELY DOES NOT INSTALL, and does not put the token in the
 # environment for you. setup-node writes a TOKENLESS npmrc whose
 # `${NODE_AUTH_TOKEN}` pnpm expands at install time, so the token belongs on the
@@ -57,11 +74,23 @@ inputs:
     default: '@wolffm'
   npm-token:
     description: >-
-      HADOKU_NPM_READ_TOKEN, asserted non-empty. Pass it even though this
-      action does not use the value for anything else -- an empty one is the
-      failure this exists to catch.
+      HADOKU_NPM_READ_TOKEN from GH Secrets, asserted non-empty. Without
+      `vault-key` it is the `npm-token` output; with it, the fallback used only
+      when the vault broker cannot be reached.
     required: false
     default: ''
+  vault-key:
+    description: >-
+      The repo's vault service key (secrets.KEY_SERVICE_<REPO>). When set, the
+      registry token is read from the vault at job time and `npm-token` becomes
+      the fallback for an unreachable broker. The key needs an ACL grant for
+      HADOKU_NPM_READ_TOKEN: declare it in the repo's .devvault.json.
+    required: false
+    default: ''
+  vault-broker:
+    description: Vault broker base URL. Override only to test.
+    required: false
+    default: https://hadoku.me/mgmt
   assert-token:
     description: >-
       Set to 'false' ONLY for a job that installs nothing from the private
@@ -69,6 +98,13 @@ inputs:
       the false green described above.
     required: false
     default: 'true'
+
+outputs:
+  npm-token:
+    description: >-
+      The registry token to put on the install step as NODE_AUTH_TOKEN — from
+      the vault when `vault-key` is set, otherwise `npm-token`. Masked.
+    value: ${{ steps.credential.outputs.token }}
 
 runs:
   using: composite
@@ -86,11 +122,32 @@ runs:
         corepack prepare "pnpm@${{ inputs.pnpm-version }}" --activate
         echo "pnpm $(pnpm --version) on node $(node --version)"
 
+    - name: Resolve the registry credential
+      id: credential
+      shell: bash
+      env:
+        HADOKU_VAULT_KEY: ${{ inputs.vault-key }}
+        VAULT_BROKER: ${{ inputs.vault-broker }}
+        VAULT_FALLBACK: ${{ inputs.npm-token }}
+      run: |
+        set -euo pipefail
+        if [ -z "$HADOKU_VAULT_KEY" ]; then
+          token="$VAULT_FALLBACK"
+        else
+          out="$RUNNER_TEMP/setup-pnpm-npm-token.$$"
+          bash "$GITHUB_ACTION_PATH/../vault-fetch/fetch.sh" HADOKU_NPM_READ_TOKEN "$out"
+          token=$(cat "$out")
+          rm -f "$out"
+          echo "registry credential read from the vault"
+        fi
+        [ -n "$token" ] && echo "::add-mask::$token"
+        echo "token=$token" >> "$GITHUB_OUTPUT"
+
     - name: Assert the registry credential is present
       if: inputs.assert-token == 'true'
       shell: bash
       env:
-        NPM_READ_TOKEN: ${{ inputs.npm-token }}
+        NPM_READ_TOKEN: ${{ steps.credential.outputs.token }}
       run: |
         if [ -z "$NPM_READ_TOKEN" ]; then
           echo "::error::HADOKU_NPM_READ_TOKEN is not set on this repository."

@@ -50,14 +50,28 @@ the first time.
 - uses: actions/checkout@v6
 
 - uses: WolffM/hadoku-actions/setup-pnpm@v1
+  id: pnpm
   with:
     npm-token: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+    vault-key: ${{ secrets.KEY_SERVICE_<REPO> }}
 
 - name: Install
   env:
-    NODE_AUTH_TOKEN: ${{ secrets.HADOKU_NPM_READ_TOKEN }}
+    NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
   run: pnpm install --frozen-lockfile
 ```
+
+**With `vault-key`, the token is read from the vault at job time.** A rotation
+is then one vault write that every later job sees, instead of a sweep across
+~20 repos' GH Secrets that leaves a window where the old value is dead and the
+new one has not arrived (2026-10-07: 19:13:25 to 19:14:24, six jobs 401'd).
+`npm-token` stays as the fallback for an UNREACHABLE broker only; a 403/404 from
+the broker fails, so a missing grant is never hidden behind a stale copy. The
+key needs a grant: declare `HADOKU_NPM_READ_TOKEN` in the repo's `.devvault.json`
+and run hadoku_site's `node scripts/admin/sync-service-acl.mjs --confirm`.
+
+Without `vault-key` the `npm-token` output is just the input, so moving the
+install step onto `steps.pnpm.outputs.npm-token` is safe before the grant exists.
 
 `node-version` (`22`), `pnpm-version` (`11.5.0`), `registry-url` and `scope`
 all default to the fleet's values. Keep `pnpm-version` equal to the repo's
@@ -148,6 +162,22 @@ daily digest as the first and only notice.
 Referenced, the runner fetches the action before the job's first step. No
 checkout, one copy, and adding a repo is the five lines above.
 
+## `vault-fetch`
+
+```yaml
+- uses: WolffM/hadoku-actions/vault-fetch@v1
+  with:
+    keys: SOME_SECRET, OTHER_SECRET
+  env:
+    HADOKU_VAULT_KEY: ${{ secrets.KEY_SERVICE_<REPO> }}
+    VAULT_FALLBACK_SOME_SECRET: ${{ secrets.SOME_SECRET }}   # optional
+```
+
+Exports each key into `GITHUB_ENV`, masked. `VAULT_FALLBACK_<NAME>` is used only
+when the broker cannot be reached or says it is not ready (non-JSON, 5xx, 503),
+never on a 403/404. The logic is `vault-fetch/fetch.sh`, shared with
+`setup-pnpm`, ported from hadoku_site's local copy with its incident history.
+
 ## Versioning
 
 **`v1` is a release tag, moved deliberately. It is never a branch alias.**
@@ -186,6 +216,12 @@ venv's, and the pinned `ruff` console script is on `PATH` — the exact artifact
 whose absence is exit 127. The second fires the isolation assert both ways, a
 module living outside the venv and a module missing entirely, and fails if
 either was accepted.
+
+**`vault-fetch`** and **`setup-pnpm`'s vault path** — against a stand-in broker
+(`.github/selftest/fake-broker.py`): a read, a passthrough without `vault-key`,
+an unreachable broker falling back, and a 403 FAILING even with a fallback set.
+*Stated gap:* the real broker is never called; a public repo's hosted runner
+holds no service key. The first caller to adopt `vault-key` covers it.
 
 **`setup-pnpm`** — that the pins actually landed (`pnpm --version`,
 `node --version`, and a custom `pnpm-version`, so an input that silently stops
