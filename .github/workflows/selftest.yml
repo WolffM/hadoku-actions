@@ -134,14 +134,21 @@ jobs:
           fi
           echo "failed on the unallowed skip, as it must"
 
-      # e2eSkipAllow turns the SAME fixtures green. Playwright's test_name has
-      # no suite prefix; vitest's does (ancestorTitles joined with ' > ') —
-      # both forms are listed because the two fixtures use different runners.
+      # e2eSkipAllow's CANONICAL shape (manager decision, wave3-2026-10-21.md
+      # lane B note, prompted by hadoku-task's real e2e.json) is an object map
+      # of {"<test title>": "<one-line reason>"} — the brief itself requires a
+      # reason per allowed skip, and only a map can hold one. Turns the SAME
+      # fixtures green. Playwright's test_name has no suite prefix; vitest's
+      # does (ancestorTitles joined with ' > ') — both forms are listed
+      # because the two fixtures use different runners.
       - name: a declared e2eSkipAllow entry makes the same skip pass
         run: |
           mkdir -p tmp-e2e-json
           cat > tmp-e2e-json/e2e.json <<'JSON'
-          {"e2eSkipAllow": ["a skipped test", "sample suite > a skipped test"]}
+          {"e2eSkipAllow": {
+            "a skipped test": "fixture artifact — intentionally skipped",
+            "sample suite > a skipped test": "fixture artifact — intentionally skipped"
+          }}
           JSON
 
       - name: playwright fixture, skip allow-listed — passes
@@ -160,6 +167,65 @@ jobs:
           echo "$inserted" | grep -q '"inserted": *2' \
             || { echo "::error::expected 2 rows inserted, got: $inserted"; exit 1; }
           echo "both rows reported: $inserted"
+
+      # THE SILENT-FALLBACK BUG THIS REPLACES. e2eSkipAllow used to be an
+      # array; hadoku-task's real e2e.json declares it as the canonical map
+      # (80 entries, one reason each) and the OLD code read
+      # `Array.isArray(...) ? ... : []` — silently treating the map as an
+      # empty array rather than erroring, which would have failed all 80
+      # declared skips with no indication why. The array shape must now fail
+      # LOUDLY instead, naming the shape.
+      - name: write an e2e.json with the old array shape
+        run: |
+          mkdir -p tmp-e2e-json
+          cat > tmp-e2e-json/array-shape.json <<'JSON'
+          {"e2eSkipAllow": ["a skipped test"]}
+          JSON
+      - name: the old array shape for e2eSkipAllow fails loudly
+        id: array-shape-run
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-array-shape
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+          e2e-json: tmp-e2e-json/array-shape.json
+      - name: assert it failed loudly on the array shape
+        run: |
+          if [ "${{ steps.array-shape-run.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e accepted the old array shape for e2eSkipAllow"
+            exit 1
+          fi
+          echo "array shape refused, as it must be"
+
+      # A map entry with an empty (or non-string) reason is equally invalid —
+      # the brief requires a REASON per skip, not just a listed title.
+      - name: write an e2e.json with an empty reason
+        run: |
+          mkdir -p tmp-e2e-json
+          cat > tmp-e2e-json/empty-reason.json <<'JSON'
+          {"e2eSkipAllow": {"a skipped test": ""}}
+          JSON
+      - name: an empty reason in e2eSkipAllow fails loudly
+        id: empty-reason-run
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-empty-reason
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+          e2e-json: tmp-e2e-json/empty-reason.json
+      - name: assert it failed loudly on the empty reason
+        run: |
+          if [ "${{ steps.empty-reason-run.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e accepted an empty e2eSkipAllow reason"
+            exit 1
+          fi
+          echo "empty reason refused, as it must be"
 
       # 0 tests ran is the other half of the skip rule — a job that measures
       # something must fail on zero rows (wave3-2026-10-21.md, binding).

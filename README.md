@@ -80,10 +80,23 @@ still have its results reported, not swallowed by `if:` defaulting to
   already told the job, so the action's own exit status is a complete answer
   on its own — a caller does not have to AND it with the command's result.
 - **A test skipped without a declared reason.** Enrolling in nightly e2e means
-  every skip is accounted for. Add a one-line reason per test to `e2eSkipAllow`
-  in `e2e.json` (read from the workspace root by default; `e2e-json` input
-  overrides the path) if a skip is genuinely expected, or fix the test — never
-  add an entry just to turn a red run green without reading why it skips.
+  every skip is accounted for. `e2eSkipAllow` in `e2e.json` (read from the
+  workspace root by default; `e2e-json` input overrides the path) is an object
+  map of **`{"<test title>": "<one-line reason>"}`** — a title with no entry,
+  or an entry whose value is not a non-empty string, fails the skip rule.
+  Add an entry if a skip is genuinely expected, or fix the test — never add
+  one just to turn a red run green without reading why it skips.
+
+  **This is the one shape `e2eSkipAllow` may take.** It used to be a bare
+  array of titles, with no room for a reason; the OLD code read
+  `Array.isArray(j.e2eSkipAllow) ? j.e2eSkipAllow : []`, so ANY other shape —
+  including this very map — silently became an empty allow-list. hadoku-task's
+  real `e2e.json` hit this: 80 entries, each with its own reason, read as zero
+  and would have failed every declared skip with no indication why. A missing
+  `e2eSkipAllow` (or the file itself) is still fine — that is simply "nothing
+  is allowed to skip" — but a PRESENT one of the wrong shape (an array, a
+  string, a map with an empty/non-string reason) now fails LOUDLY, naming the
+  shape or the offending key, instead of silently degrading.
 - **The report never reached the store** — an unset/empty `key`, a non-2xx
   response, or a network error. monitoring-api's digest and the roster read
   `e2e_results` as the record of what happened; an app whose report silently
@@ -276,11 +289,14 @@ skip fails the job (proven by running it and checking the step failed, same
 "a guard nothing fires reads as coverage" rule as everywhere else here) while
 still reaching the store — asserted by reading back the store's own
 `{"inserted": N}` response, not just trusting the curl exited 0. An
-`e2eSkipAllow` entry in `e2e.json` turns the same fixture green. Separately: 0
-tests ran fails the job, `runner: pytest` is refused loudly (pytest is wave 4),
-and — unlike every other guard in this repo — an unset key and a store refusal
-(403) also fail the job rather than warn: `report-e2e` deliberately gates CI on
-monitoring-api's own availability, because a row that never arrived is itself
+`e2eSkipAllow` map entry in `e2e.json` turns the same fixture green; the OLD
+array shape, and a map entry with an empty reason, each fail LOUDLY instead of
+the array silently reading as an empty allow-list (the bug hadoku-task's real
+80-entry map actually hit). Separately: 0 tests ran fails the job, `runner:
+pytest` is refused loudly (pytest is wave 4), and — unlike every other guard
+in this repo — an unset key and a store refusal (403) also fail the job
+rather than warn: `report-e2e` deliberately gates CI on monitoring-api's own
+availability, because a row that never arrived is itself
 the failure it exists to catch (see the README section above). Both are proven
 the same way as every other refusal here, by running them and checking the
 step failed.

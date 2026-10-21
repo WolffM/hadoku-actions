@@ -70,8 +70,11 @@ inputs:
   e2e-json:
     description: >-
       Path to e2e.json (relative to the workspace), read for its
-      `e2eSkipAllow` list. Missing/unreadable is treated as an empty list,
-      never an error — this action does not own enrolment.
+      `e2eSkipAllow` map (`{"<test title>": "<one-line reason>"}`). A missing
+      FILE is treated as an empty map, never an error — this action does not
+      own enrolment. A PRESENT `e2eSkipAllow` of the wrong shape (anything
+      other than that map, or a map with a non-string/empty reason) fails the
+      job loudly — see parse.mjs.
     required: false
     default: e2e.json
 
@@ -88,23 +91,25 @@ runs:
       run: |
         set -euo pipefail
 
-        # e2eSkipAllow is read here, in bash, rather than inside parse.mjs,
-        # so the parser stays pure "report in, rows out" and unaware of the
-        # enrolment file's existence — a missing/unreadable e2e.json degrades
-        # to an empty allow-list rather than failing the step.
+        # The FILE's existence is read here, in bash — a missing e2e.json
+        # degrades to an empty allow-list rather than failing the step, since
+        # this action does not own enrolment. The SHAPE of `e2eSkipAllow`,
+        # once a file is present, is deliberately NOT judged here: this step
+        # passes whatever value it finds through verbatim (or 'null' when
+        # the key or the file is absent) and parse.mjs is the single place
+        # that validates it — one shape check, not two that could disagree.
         if [ -f "$E2E_JSON_PATH" ]; then
           SKIP_ALLOW=$(node -e "
             const fs = require('node:fs');
             try {
               const j = JSON.parse(fs.readFileSync(process.env.E2E_JSON_PATH, 'utf8'));
-              const allow = Array.isArray(j.e2eSkipAllow) ? j.e2eSkipAllow : [];
-              process.stdout.write(JSON.stringify(allow));
+              process.stdout.write(JSON.stringify(j.e2eSkipAllow ?? null));
             } catch {
-              process.stdout.write('[]');
+              process.stdout.write('null');
             }
           ")
         else
-          SKIP_ALLOW='[]'
+          SKIP_ALLOW='null'
         fi
         export SKIP_ALLOW
 
