@@ -134,6 +134,57 @@ jobs:
           fi
           echo "failed on the unallowed skip, as it must"
 
+      # PYTEST (wave 4). report-e2e/fixtures/pytest-report.xml is a REAL
+      # `--junitxml` capture from an actually-executed 2-test suite (one
+      # plain pass, one that fails once then passes under
+      # `pytest --reruns 2`) — never hand-written. It has no skip, so this
+      # fixture must pass end-to-end: both the job outcome AND the FLAKY
+      # mapping itself, read back from the parsed-rows file the action
+      # writes to $RUNNER_TEMP (same technique as the "rows actually landed"
+      # assert above) — a run that merely didn't error would not prove the
+      # rerun was classified as flaky rather than silently dropped or
+      # double-counted as a second passing test.
+      - name: pytest fixture (real --reruns capture), one flaky test — passes
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/pytest-report.xml
+          runner: pytest
+          app: selftest-pytest
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+      - name: assert the rerun test was mapped to flaky with 2 attempts
+        run: |
+          parsed=$(cat "$RUNNER_TEMP/report-e2e-parsed.json")
+          echo "$parsed" | grep -q '"test_name":"test_a_flaky_test_that_passes_on_rerun".*"outcome":"flaky".*"attempts":2' \
+            || { echo "::error::flaky pytest rerun was not mapped to outcome=flaky/attempts=2: $parsed"; exit 1; }
+          echo "$parsed" | grep -q '"test_name":"test_a_passing_test".*"outcome":"passed".*"attempts":1' \
+            || { echo "::error::the plain pass regressed: $parsed"; exit 1; }
+          inserted=$(cat "$RUNNER_TEMP/report-e2e-post-0.json")
+          echo "$inserted" | grep -q '"inserted": *2' \
+            || { echo "::error::expected 2 rows inserted for the pytest fixture, got: $inserted"; exit 1; }
+          echo "pytest flaky mapping correct, and both rows landed in the store"
+
+      # The other half of "0 tests ran" (already proven for playwright
+      # below) — a REAL `pytest --junitxml` capture of a run that collected
+      # nothing, not a hand-written empty file.
+      - name: pytest, 0 tests ran — fails the job
+        id: pytest-zero
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/empty-pytest-report.xml
+          runner: pytest
+          app: selftest-pytest-empty
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+      - name: assert it failed on 0 tests (pytest)
+        run: |
+          if [ "${{ steps.pytest-zero.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail on 0 pytest tests"
+            exit 1
+          fi
+          echo "failed on 0 pytest tests, as it must"
+
       # e2eSkipAllow's CANONICAL shape (manager decision, wave3-2026-10-21.md
       # lane B note, prompted by hadoku-task's real e2e.json) is an object map
       # of {"<test title>": "<one-line reason>"} — the brief itself requires a
@@ -247,22 +298,24 @@ jobs:
           fi
           echo "failed on 0 tests, as it must"
 
-      # pytest is wave 4 — an unrecognised runner must fail loudly rather than
-      # silently report nothing.
+      # playwright, vitest and pytest are the only runners report-e2e knows —
+      # an unrecognised one (cypress, here — chosen because it is NOT one of
+      # the three, not because of anything about cypress itself) must still
+      # fail loudly rather than silently report nothing.
       - name: an unknown runner is refused
         id: badrunner
         continue-on-error: true
         uses: ./report-e2e
         with:
           report: report-e2e/fixtures/playwright-report.json
-          runner: pytest
+          runner: cypress
           app: selftest-bad
           key: selftest-key
           endpoint: http://127.0.0.1:5300/
       - name: assert the refusal actually fired
         run: |
           if [ "${{ steps.badrunner.outcome }}" != "failure" ]; then
-            echo "::error::report-e2e accepted runner=pytest"
+            echo "::error::report-e2e accepted runner=cypress"
             exit 1
           fi
           echo "unknown runner refused, as it must be"
