@@ -1,0 +1,186 @@
+name: Report e2e results
+description: >-
+  Parse a Playwright or vitest JSON report into one row per test and POST it
+  to monitoring-api's e2e_results store, enforcing the skip rule. Never fails
+  on a transport error to the store — but DOES fail on 0 tests, an
+  unallowed skip, or a failed test, which is this action's actual job.
+
+# WHY THIS IS SEPARATE FROM report-job
+# -------------------------------------
+# report-job records one row per WORKFLOW JOB ("did the build succeed").
+# This records one row per TEST ("which spec, which outcome, how many
+# attempts") — a different shape, a different store (e2e_results, not
+# job_executions), and a different question (fleet e2e coverage, not CI
+# health). A child repo's e2e.yml uses both: report-job says the workflow
+# ran; this says what its tests did.
+#
+# hadoku_site's wave3-2026-10-21.md §Contract is the source of truth for the
+# wire shape (POST /health/api/e2e/results) and the vocabulary
+# (passed|failed|flaky|skipped). Changing either is a hadoku_site change
+# first — this action only implements it.
+#
+# PYTEST IS WAVE 4. An unrecognised `runner` fails loudly in parse.mjs rather
+# than silently reporting nothing, because a report full of untranslated test
+# names is worse than a visible gap.
+
+inputs:
+  report:
+    description: Path to the runner's JSON reporter output (relative to the workspace).
+    required: true
+  runner:
+    description: "'playwright' or 'vitest'. Anything else fails the step."
+    required: true
+  app:
+    description: App id — what the nightly e2e roster and the digest call this suite.
+    required: true
+  key:
+    description: This repo's KEY_SERVICE_<APP> service-tier key, sent as X-User-Key.
+    required: true
+  nightly-run-id:
+    description: >-
+      Correlates this run with nightly-e2e.yml's dispatch. Leave unset for a
+      standalone `workflow_dispatch` of the repo's own e2e.yml.
+    required: false
+    default: ''
+  gh-run-id:
+    description: Overrides the gh_run_id sent to the store. Defaults to this run's id.
+    required: false
+    default: ${{ github.run_id }}
+  repo:
+    description: Overrides the repo sent to the store. Defaults to owner/name.
+    required: false
+    default: ${{ github.repository }}
+  endpoint:
+    description: monitoring-api's results endpoint.
+    required: false
+    default: https://hadoku.me/health/api/e2e/results
+  e2e-json:
+    description: >-
+      Path to e2e.json (relative to the workspace), read for its
+      `e2eSkipAllow` list. Missing/unreadable is treated as an empty list,
+      never an error — this action does not own enrolment.
+    required: false
+    default: e2e.json
+
+runs:
+  using: composite
+  steps:
+    - name: Parse the report and enforce the skip rule
+      id: parse
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report }}
+        RUNNER: ${{ inputs.runner }}
+        E2E_JSON_PATH: ${{ inputs.e2e-json }}
+      run: |
+        set -euo pipefail
+
+        # e2eSkipAllow is read here, in bash, rather than inside parse.mjs,
+        # so the parser stays pure "report in, rows out" and unaware of the
+        # enrolment file's existence — a missing/unreadable e2e.json degrades
+        # to an empty allow-list rather than failing the step.
+        if [ -f "$E2E_JSON_PATH" ]; then
+          SKIP_ALLOW=$(node -e "
+            const fs = require('node:fs');
+            try {
+              const j = JSON.parse(fs.readFileSync(process.env.E2E_JSON_PATH, 'utf8'));
+              const allow = Array.isArray(j.e2eSkipAllow) ? j.e2eSkipAllow : [];
+              process.stdout.write(JSON.stringify(allow));
+            } catch {
+              process.stdout.write('[]');
+            }
+          ")
+        else
+          SKIP_ALLOW='[]'
+        fi
+        export SKIP_ALLOW
+
+        node "$GITHUB_ACTION_PATH/parse.mjs" > "$RUNNER_TEMP/report-e2e-parsed.json"
+
+        rows_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.env.PARSED,'utf8')).rows.length)" \
+          PARSED="$RUNNER_TEMP/report-e2e-parsed.json")
+        echo "parsed_count=${rows_count}" >> "$GITHUB_OUTPUT"
+        echo "parsed ${rows_count} test row(s) from ${RUNNER_TEMP}/report-e2e-parsed.json"
+
+    - name: POST the rows to monitoring-api (always, even on a failing run)
+      id: post
+      shell: bash
+      env:
+        SERVICE_KEY: ${{ inputs.key }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        APP: ${{ inputs.app }}
+        REPO: ${{ inputs.repo }}
+        GH_RUN_ID: ${{ inputs.gh-run-id }}
+        NIGHTLY_RUN_ID: ${{ inputs.nightly-run-id }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$SERVICE_KEY" ]; then
+          echo "::warning::service key unset — ${APP} e2e results not reported"
+          exit 0
+        fi
+
+        parsed="$RUNNER_TEMP/report-e2e-parsed.json"
+        rows_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).rows.length)" "$parsed")
+        if [ "$rows_count" -eq 0 ]; then
+          echo "0 rows parsed — nothing to POST."
+          exit 0
+        fi
+
+        # §Contract: POST /health/api/e2e/results accepts at most 2,000 rows
+        # per request. Chunk rather than assume any one suite stays under it
+        # — a batch that would otherwise silently 400 and lose every row.
+        node -e "
+          const fs = require('node:fs');
+          const { rows } = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+          const CHUNK = 2000;
+          const chunks = [];
+          for (let i = 0; i < rows.length; i += CHUNK) chunks.push(rows.slice(i, i + CHUNK));
+          fs.writeFileSync(process.argv[2], JSON.stringify(chunks));
+        " "$parsed" "$RUNNER_TEMP/report-e2e-chunks.json"
+
+        chunk_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).length)" "$RUNNER_TEMP/report-e2e-chunks.json")
+
+        inserted_total=0
+        for i in $(seq 0 $((chunk_count - 1))); do
+          body=$(node -e "
+            const fs = require('node:fs');
+            const chunks = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+            const results = chunks[Number(process.argv[2])];
+            const body = { gh_run_id: process.env.GH_RUN_ID, repo: process.env.REPO, app: process.env.APP, results };
+            if (process.env.NIGHTLY_RUN_ID) body.nightly_run_id = process.env.NIGHTLY_RUN_ID;
+            process.stdout.write(JSON.stringify(body));
+          " "$RUNNER_TEMP/report-e2e-chunks.json" "$i")
+
+          status_code=$(curl -sS -o "$RUNNER_TEMP/report-e2e-post-$i.json" -w "%{http_code}" \
+            -X POST "$ENDPOINT" \
+            -H "X-User-Key: $SERVICE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data "$body")
+
+          if [ "$status_code" != "200" ]; then
+            echo "::warning::POST ${ENDPOINT} returned HTTP ${status_code} for chunk $((i + 1))/${chunk_count} — $(cat "$RUNNER_TEMP/report-e2e-post-$i.json")"
+          else
+            inserted=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).inserted ?? 0)" "$RUNNER_TEMP/report-e2e-post-$i.json")
+            inserted_total=$((inserted_total + inserted))
+          fi
+        done
+        echo "reported ${inserted_total}/${rows_count} row(s) for ${APP} to ${ENDPOINT}"
+
+    - name: Fail on 0 tests, an unallowed skip, or a failed test
+      shell: bash
+      run: |
+        set -euo pipefail
+        parsed="$RUNNER_TEMP/report-e2e-parsed.json"
+        failures_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).failures.length)" "$parsed")
+        if [ "$failures_count" -eq 0 ]; then
+          echo "all tests accounted for — nothing failing the job."
+          exit 0
+        fi
+        echo "::error::report-e2e found ${failures_count} failure(s):"
+        node -e "
+          const fs = require('node:fs');
+          const { failures } = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+          for (const f of failures) console.log('  - ' + f);
+        " "$parsed"
+        exit 1

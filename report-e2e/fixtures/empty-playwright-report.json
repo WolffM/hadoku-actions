@@ -1,0 +1,12 @@
+{
+  "suites": [],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-21T00:00:00.000Z",
+    "duration": 1,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
