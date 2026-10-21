@@ -70,7 +70,7 @@ them to monitoring-api's `/health/api/e2e/results`, chunked at 2,000 rows per
 request. **`pytest` is wave 4**: an unrecognised `runner` fails loudly rather
 than silently reporting nothing.
 
-**It fails the job on three things, and `if: always()` is load-bearing** for
+**It fails the job on four things, and `if: always()` is load-bearing** for
 the same reason it is on `report-job` — a test command that itself failed must
 still have its results reported, not swallowed by `if:` defaulting to
 `success()`:
@@ -84,11 +84,19 @@ still have its results reported, not swallowed by `if:` defaulting to
   in `e2e.json` (read from the workspace root by default; `e2e-json` input
   overrides the path) if a skip is genuinely expected, or fix the test — never
   add an entry just to turn a red run green without reading why it skips.
+- **The report never reached the store** — an unset/empty `key`, a non-2xx
+  response, or a network error. monitoring-api's digest and the roster read
+  `e2e_results` as the record of what happened; an app whose report silently
+  failed to land reads as an app that just didn't run that night, not as a red
+  one, and that is strictly worse — a job measuring something must fail on
+  zero rows. So, unlike `report-job`'s philosophy of never gating CI on
+  monitoring-api's own availability, this action deliberately DOES: a missing
+  row is itself the failure it exists to catch.
 
-**A transport failure to the store (an unset key, or the store itself
-refusing) WARNS and never fails the job** — same philosophy as `report-job`:
-this action's job is to judge the TEST outcome, not to gate your CI on
-monitoring-api's own availability.
+The three steps still run in order — parse, POST (always, even when tests
+already failed), then one step failing on the union of test failures, the
+skip rule, and any POST failure — so the store gets whatever rows could be
+posted before the job goes red.
 
 `gh-run-id` and `repo` default to the calling run's own id and `owner/name`;
 override them only for a caller that posts on behalf of another run (none
@@ -270,9 +278,12 @@ still reaching the store — asserted by reading back the store's own
 `{"inserted": N}` response, not just trusting the curl exited 0. An
 `e2eSkipAllow` entry in `e2e.json` turns the same fixture green. Separately: 0
 tests ran fails the job, `runner: pytest` is refused loudly (pytest is wave 4),
-an unset key warns rather than failing the caller, and a store refusal (403)
-also warns rather than failing the caller — a transport problem must never gate
-CI on monitoring-api's own availability.
+and — unlike every other guard in this repo — an unset key and a store refusal
+(403) also fail the job rather than warn: `report-e2e` deliberately gates CI on
+monitoring-api's own availability, because a row that never arrived is itself
+the failure it exists to catch (see the README section above). Both are proven
+the same way as every other refusal here, by running them and checking the
+step failed.
 
 *Stated gap:* the real store is never called, for the same reason `report-job`
 states one — a public repo's hosted runner holds no real service key, and a

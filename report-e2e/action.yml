@@ -1,9 +1,11 @@
 name: Report e2e results
 description: >-
   Parse a Playwright or vitest JSON report into one row per test and POST it
-  to monitoring-api's e2e_results store, enforcing the skip rule. Never fails
-  on a transport error to the store — but DOES fail on 0 tests, an
-  unallowed skip, or a failed test, which is this action's actual job.
+  to monitoring-api's e2e_results store, enforcing the skip rule. Fails the
+  job on 0 tests, an unallowed skip, a failed test, OR a failure to report
+  (an unset key, a non-2xx response, or a network error) — a run whose
+  results never arrived must look exactly as broken as a run with a real
+  failing test, never like a quiet green night.
 
 # WHY THIS IS SEPARATE FROM report-job
 # -------------------------------------
@@ -22,6 +24,17 @@ description: >-
 # PYTEST IS WAVE 4. An unrecognised `runner` fails loudly in parse.mjs rather
 # than silently reporting nothing, because a report full of untranslated test
 # names is worse than a visible gap.
+#
+# A FAILED REPORT MUST FAIL THE JOB, DELIBERATELY NOT A WARNING. monitoring-api's
+# digest and the roster read `e2e_results` as the record of what happened; an
+# app that silently failed to report reads as an app that simply didn't run
+# that night, not as a red one — and the wave's own rule is that a job
+# measuring something must fail on zero rows. So an unset/empty `key`, a
+# non-2xx response, or a network error to the store all fail the job, exactly
+# like a failed test does. The three steps below still run in order — parse,
+# POST (always, even when tests failed), then one step failing on the UNION of
+# test failures, the skip rule, and any POST failure — so the store always
+# gets whatever could be posted before the job goes red.
 
 inputs:
   report:
@@ -97,8 +110,8 @@ runs:
 
         node "$GITHUB_ACTION_PATH/parse.mjs" > "$RUNNER_TEMP/report-e2e-parsed.json"
 
-        rows_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.env.PARSED,'utf8')).rows.length)" \
-          PARSED="$RUNNER_TEMP/report-e2e-parsed.json")
+        rows_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).rows.length)" \
+          "$RUNNER_TEMP/report-e2e-parsed.json")
         echo "parsed_count=${rows_count}" >> "$GITHUB_OUTPUT"
         echo "parsed ${rows_count} test row(s) from ${RUNNER_TEMP}/report-e2e-parsed.json"
 
@@ -113,10 +126,21 @@ runs:
         GH_RUN_ID: ${{ inputs.gh-run-id }}
         NIGHTLY_RUN_ID: ${{ inputs.nightly-run-id }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
+        # Deliberately NOT `set -e` here: a transport failure (an unreachable
+        # store, a non-2xx response) must be CAUGHT and recorded as a
+        # post-failure, not let an early exit skip the rest of the chunk loop
+        # or leave the next step without a post-failures file to read. Every
+        # exit path below writes $post_failures before returning.
+        post_failures='[]'
+        write_post_failures() {
+          printf '%s' "$post_failures" > "$RUNNER_TEMP/report-e2e-post-failures.json"
+        }
 
         if [ -z "$SERVICE_KEY" ]; then
-          echo "::warning::service key unset — ${APP} e2e results not reported"
+          echo "::error::service key unset — ${APP} e2e results could not be reported"
+          post_failures='["service key unset — nothing could be reported"]'
+          write_post_failures
           exit 0
         fi
 
@@ -124,6 +148,7 @@ runs:
         rows_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).rows.length)" "$parsed")
         if [ "$rows_count" -eq 0 ]; then
           echo "0 rows parsed — nothing to POST."
+          write_post_failures
           exit 0
         fi
 
@@ -142,6 +167,7 @@ runs:
         chunk_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).length)" "$RUNNER_TEMP/report-e2e-chunks.json")
 
         inserted_total=0
+        failed_chunks=()
         for i in $(seq 0 $((chunk_count - 1))); do
           body=$(node -e "
             const fs = require('node:fs');
@@ -152,14 +178,30 @@ runs:
             process.stdout.write(JSON.stringify(body));
           " "$RUNNER_TEMP/report-e2e-chunks.json" "$i")
 
+          # Remove any stale file first — on a hard connect failure curl may
+          # write no response body at all, and the error message below must
+          # not read a PREVIOUS chunk's leftover content.
+          rm -f "$RUNNER_TEMP/report-e2e-post-$i.json"
           status_code=$(curl -sS -o "$RUNNER_TEMP/report-e2e-post-$i.json" -w "%{http_code}" \
             -X POST "$ENDPOINT" \
             -H "X-User-Key: $SERVICE_KEY" \
             -H 'Content-Type: application/json' \
             --data "$body")
+          curl_exit=$?
+          # A hard network failure (connection refused, DNS, timeout) makes
+          # curl exit non-zero; some curl builds still print "000" via -w in
+          # that case and some print nothing, so force it explicitly rather
+          # than risk an empty status falling through the comparison below.
+          # Checked under `set -u` with no `-e`, deliberately, so this failure
+          # is CAUGHT and recorded, not let it abort the rest of the loop.
+          if [ "$curl_exit" -ne 0 ] || [ -z "$status_code" ]; then
+            status_code="000"
+          fi
 
           if [ "$status_code" != "200" ]; then
-            echo "::warning::POST ${ENDPOINT} returned HTTP ${status_code} for chunk $((i + 1))/${chunk_count} — $(cat "$RUNNER_TEMP/report-e2e-post-$i.json")"
+            resp_body=$(cat "$RUNNER_TEMP/report-e2e-post-$i.json" 2>/dev/null || echo '<no response body>')
+            echo "::error::POST ${ENDPOINT} returned HTTP ${status_code} for chunk $((i + 1))/${chunk_count} — ${resp_body}"
+            failed_chunks+=("chunk $((i + 1))/${chunk_count} returned HTTP ${status_code}")
           else
             inserted=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).inserted ?? 0)" "$RUNNER_TEMP/report-e2e-post-$i.json")
             inserted_total=$((inserted_total + inserted))
@@ -167,20 +209,38 @@ runs:
         done
         echo "reported ${inserted_total}/${rows_count} row(s) for ${APP} to ${ENDPOINT}"
 
-    - name: Fail on 0 tests, an unallowed skip, or a failed test
+        if [ "${#failed_chunks[@]}" -gt 0 ]; then
+          post_failures=$(node -e "
+            process.stdout.write(JSON.stringify(process.argv.slice(1).map((s) => 'POST failed: ' + s)));
+          " "${failed_chunks[@]}")
+        fi
+        write_post_failures
+
+    - name: Fail on 0 tests, an unallowed skip, a failed test, or a failed POST
       shell: bash
       run: |
         set -euo pipefail
         parsed="$RUNNER_TEMP/report-e2e-parsed.json"
-        failures_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).failures.length)" "$parsed")
-        if [ "$failures_count" -eq 0 ]; then
-          echo "all tests accounted for — nothing failing the job."
+        post_failures_file="$RUNNER_TEMP/report-e2e-post-failures.json"
+        [ -f "$post_failures_file" ] || echo '[]' > "$post_failures_file"
+
+        total=$(node -e "
+          const fs = require('node:fs');
+          const { failures } = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+          const postFailures = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          console.log(failures.length + postFailures.length);
+        " "$parsed" "$post_failures_file")
+
+        if [ "$total" -eq 0 ]; then
+          echo "all tests accounted for, and the store confirmed every row — nothing failing the job."
           exit 0
         fi
-        echo "::error::report-e2e found ${failures_count} failure(s):"
+
+        echo "::error::report-e2e found ${total} failure(s):"
         node -e "
           const fs = require('node:fs');
           const { failures } = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-          for (const f of failures) console.log('  - ' + f);
-        " "$parsed"
+          const postFailures = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          for (const f of [...failures, ...postFailures]) console.log('  - ' + f);
+        " "$parsed" "$post_failures_file"
         exit 1

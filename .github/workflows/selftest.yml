@@ -77,6 +77,177 @@ jobs:
           fi
           echo "colon-less job-name refused, as it must be"
 
+  report-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      # A stand-in monitoring-api, same shape as fake-broker.py: this repo is
+      # public and hosted, and holds no real service key to hit the live
+      # store with. `ok` echoes back a real inserted count so the asserts
+      # below can check rows actually arrived, not just that curl ran.
+      - name: start a stand-in results store
+        run: |
+          python3 .github/selftest/fake-e2e-store.py ok 5300 &
+          python3 .github/selftest/fake-e2e-store.py deny 5301 &
+          for p in 5300 5301; do
+            for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$p/" && break; sleep 0.25; done
+          done
+
+      # Both fixtures carry a skip the allow-list below does not cover, so
+      # they must fail — and the "report anyway" case right after proves the
+      # unallowed skip did not stop the POST from reaching the store.
+      - name: playwright fixture, unallowed skip — fails the job
+        id: pw-unallowed
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-pw
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+      - name: assert it failed on the unallowed skip
+        run: |
+          if [ "${{ steps.pw-unallowed.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail on an unallowed skip (playwright)"
+            exit 1
+          fi
+          echo "failed on the unallowed skip, as it must"
+
+      - name: vitest fixture, unallowed skip — fails the job
+        id: vt-unallowed
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/vitest-report.json
+          runner: vitest
+          app: selftest-vt
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+      - name: assert it failed on the unallowed skip
+        run: |
+          if [ "${{ steps.vt-unallowed.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail on an unallowed skip (vitest)"
+            exit 1
+          fi
+          echo "failed on the unallowed skip, as it must"
+
+      # e2eSkipAllow turns the SAME fixtures green. Playwright's test_name has
+      # no suite prefix; vitest's does (ancestorTitles joined with ' > ') —
+      # both forms are listed because the two fixtures use different runners.
+      - name: a declared e2eSkipAllow entry makes the same skip pass
+        run: |
+          mkdir -p tmp-e2e-json
+          cat > tmp-e2e-json/e2e.json <<'JSON'
+          {"e2eSkipAllow": ["a skipped test", "sample suite > a skipped test"]}
+          JSON
+
+      - name: playwright fixture, skip allow-listed — passes
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-pw
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+          e2e-json: tmp-e2e-json/e2e.json
+
+      - name: assert the rows actually landed in the store
+        run: |
+          inserted=$(cat "$RUNNER_TEMP"/report-e2e-post-0.json)
+          echo "$inserted" | grep -q '"inserted": *2' \
+            || { echo "::error::expected 2 rows inserted, got: $inserted"; exit 1; }
+          echo "both rows reported: $inserted"
+
+      # 0 tests ran is the other half of the skip rule — a job that measures
+      # something must fail on zero rows (wave3-2026-10-21.md, binding).
+      - name: 0 tests ran — fails the job
+        id: zero
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/empty-playwright-report.json
+          runner: playwright
+          app: selftest-empty
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+      - name: assert it failed on 0 tests
+        run: |
+          if [ "${{ steps.zero.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail on 0 tests"
+            exit 1
+          fi
+          echo "failed on 0 tests, as it must"
+
+      # pytest is wave 4 — an unrecognised runner must fail loudly rather than
+      # silently report nothing.
+      - name: an unknown runner is refused
+        id: badrunner
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: pytest
+          app: selftest-bad
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/
+      - name: assert the refusal actually fired
+        run: |
+          if [ "${{ steps.badrunner.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e accepted runner=pytest"
+            exit 1
+          fi
+          echo "unknown runner refused, as it must be"
+
+      # An unset key must FAIL the job (manager decision, wave3-2026-10-21.md
+      # lane B note): a report that never reached the store must look exactly
+      # as broken as a run with a real failing test, never like a quiet green
+      # night the digest counts as "nothing to see". Paired with the
+      # allow-listed fixture so a failure here can only be this, nothing else.
+      - name: an unset service key fails the job
+        id: nokey
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/vitest-report.json
+          runner: vitest
+          app: selftest-nokey
+          key: ''
+          endpoint: http://127.0.0.1:5300/
+          e2e-json: tmp-e2e-json/e2e.json
+      - name: assert it failed on the unset key
+        run: |
+          if [ "${{ steps.nokey.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail on an unset service key"
+            exit 1
+          fi
+          echo "failed on the unset key, as it must"
+
+      # A STORE REFUSAL (403) IS ALSO A TRANSPORT FAILURE THAT MUST FAIL THE
+      # JOB — same reasoning as the unset key above: the row is gone, so the
+      # job must go red. Paired with the allow-listed fixture so a failure
+      # here can only be the POST, nothing else.
+      - name: a store refusal (403) also fails the job
+        id: denied
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/vitest-report.json
+          runner: vitest
+          app: selftest-denied
+          key: selftest-key
+          endpoint: http://127.0.0.1:5301/
+          e2e-json: tmp-e2e-json/e2e.json
+      - name: assert it failed on the store refusal
+        run: |
+          if [ "${{ steps.denied.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail on a store refusal (403)"
+            exit 1
+          fi
+          echo "failed on the store refusal, as it must"
+
   setup-pnpm:
     runs-on: ubuntu-latest
     timeout-minutes: 10
