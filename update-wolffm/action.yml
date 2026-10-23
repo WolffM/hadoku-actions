@@ -42,9 +42,9 @@ inputs:
     default: 'true'
   post-update:
     description: >-
-      Shell run in working-directory after the update and before the assert,
-      for a repo that must rewrite what pnpm produced (hadoku-task restores
-      workspace:* ranges; watchparty bumps its own package versions).
+      Shell run in working-directory after the assert and before verify, for a
+      repo that must add to what the update produced (watchparty bumps its own
+      package versions when apps/ui or packages changed).
     required: false
     default: ''
   verify:
@@ -84,13 +84,43 @@ runs:
         r=''; [ "$RECURSIVE" = 'true' ] && r='-r'
         pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" update $r --latest "@wolffm/*"
 
-    - name: Post-update
-      if: inputs.post-update != ''
+    # `pnpm update --latest` rewrites an in-repo package's `workspace:*` range
+    # to a registry version, and the next frozen install then resolves the
+    # PUBLISHED copy instead of the one in the repo. hadoku-task shipped that to
+    # production on 2026-08-05; this restore was its fix, and it is correct for
+    # every workspace, so it runs for all. Only names that are packages of THIS
+    # repo are touched.
+    - name: Restore workspace:* for in-repo packages
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       env:
         NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
-      run: ${{ inputs.post-update }}
+        WORKDIR: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        fixed=$(node -e '
+          const {execSync}=require("child_process"), fs=require("fs");
+          const manifests=execSync("git ls-files \"*package.json\"").toString().trim().split("\n")
+            .filter(m => m && !m.includes("node_modules"));
+          const members=new Set(manifests.map(m => { try { return JSON.parse(fs.readFileSync(m,"utf8")).name } catch { return null } }).filter(Boolean));
+          let fixed=0;
+          for (const m of manifests) {
+            let pkg; try { pkg=JSON.parse(fs.readFileSync(m,"utf8")); } catch { continue; }
+            let changed=false;
+            for (const field of ["dependencies","devDependencies"]) {
+              for (const [name,range] of Object.entries(pkg[field]||{})) {
+                if (members.has(name) && !String(range).startsWith("workspace:")) {
+                  console.error(`${m}: ${name} ${range} -> workspace:* (in-repo package)`);
+                  pkg[field][name]="workspace:*"; changed=true; fixed++;
+                }
+              }
+            }
+            if (changed) fs.writeFileSync(m, JSON.stringify(pkg,null,2)+"\n");
+          }
+          console.log(fixed);
+        ')
+        if [ "$fixed" -gt 0 ]; then
+          (cd "$WORKDIR" && pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" install --lockfile-only)
+        fi
 
     - name: Assert every @wolffm dependency is at latest
       shell: bash
@@ -148,6 +178,14 @@ runs:
             }
             console.log("All @wolffm dependencies are at latest.");
           '
+
+    - name: Post-update
+      if: inputs.post-update != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+      run: ${{ inputs.post-update }}
 
     - name: Verify before anything is pushed
       if: inputs.verify != ''
