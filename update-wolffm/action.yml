@@ -226,6 +226,18 @@ runs:
         git "${bot[@]}" commit -q -m "chore: auto-update @wolffm/* to latest"
         export REPO_ACTION_BODY="{\"branch\":\"$BOT_BRANCH\"}"
         for attempt in 1 2 3; do
+          # Rebase BEFORE every push, the first included. A dispatch pins the
+          # checkout to $default as it was when the event fired; if a commit
+          # touching .github/workflows/ landed since, the bot branch would
+          # appear to revert it and GitHub refuses the push outright (the
+          # job token has no `workflows` permission) — promote never runs,
+          # so its exit 2 never gets the chance to trigger a rebase.
+          git fetch -q origin "$default"
+          git "${bot[@]}" rebase -q "origin/$default" || {
+            git rebase --abort
+            echo "::error::the bump no longer applies to $default; the next wolffm_published run starts from scratch"
+            exit 1
+          }
           git push -q --force origin "HEAD:refs/heads/$BOT_BRANCH"
           rc=0; bash "$GITHUB_ACTION_PATH/../repo-action/call.sh" || rc=$?
           if [ "$rc" -eq 0 ]; then
@@ -235,12 +247,6 @@ runs:
           fi
           [ "$rc" -eq 2 ] || exit 1
           echo "$default moved while this ran (attempt $attempt); rebasing onto it"
-          git fetch -q origin "$default"
-          git "${bot[@]}" rebase -q "origin/$default" || {
-            git rebase --abort
-            echo "::error::the bump no longer applies to $default; the next wolffm_published run starts from scratch"
-            exit 1
-          }
         done
         echo "::error::$default kept moving; gave up after 3 promotes"
         exit 1
