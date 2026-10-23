@@ -1,0 +1,208 @@
+name: Update @wolffm packages
+description: >-
+  Bump every @wolffm/* dependency to latest, push the result to a bot/* branch
+  with the job's own GITHUB_TOKEN, and ask mgmt-api to fast-forward the default
+  branch onto it. One copy for the twenty update-wolffm.yml files that had
+  drifted twenty ways, and the end of HADOKU_SITE_TOKEN in them.
+
+# THE CALLER MUST:
+#   - check out with the DEFAULT token (`actions/checkout` with no `token:`),
+#     fetch-depth 0, so `git push` here authenticates as GITHUB_TOKEN;
+#   - grant `contents: write` (GITHUB_TOKEN pushes the bot branch; it cannot
+#     push the protected default branch, and does not need to).
+#
+# WHY A BOT BRANCH AND MGMT-API. The default branch requires checks a fresh
+# commit has not run, so the old copies pushed with a classic PAT that bypassed
+# them as an admin — a key to the whole account in every repo. Here the job
+# pushes `bot/update-wolffm` and mgmt-api, holding the only PAT, moves the
+# default branch with `force: false`. A ref update made with that PAT starts
+# the repo's `on: push` publish/deploy exactly as the old push did (proven
+# 2026-10-23). Nothing runs on the bot branch itself.
+#
+# Plan: hadoku-fleet-manager-private docs/planning/site-token-broker-2026-10-23.md.
+
+inputs:
+  service-key:
+    description: This repo's KEY_SERVICE_<REPO>. Fetches the registry token and authorizes the promote.
+    required: true
+  npm-token:
+    description: Fallback registry token (HADOKU_NPM_READ_TOKEN), used only if the vault cannot be reached.
+    required: false
+    default: ''
+  node-version:
+    required: false
+    default: '22'
+  working-directory:
+    description: Where the pnpm project lives, relative to the checkout.
+    required: false
+    default: .
+  recursive:
+    description: "'true' runs `pnpm update -r` across the workspace."
+    required: false
+    default: 'true'
+  post-update:
+    description: >-
+      Shell run in working-directory after the update and before the assert,
+      for a repo that must rewrite what pnpm produced (hadoku-task restores
+      workspace:* ranges; watchparty bumps its own package versions).
+    required: false
+    default: ''
+  verify:
+    description: >-
+      Shell run in working-directory when something changed, before anything
+      is pushed. Nothing else checks the bump before the default branch moves,
+      so a repo whose required checks matter puts them here.
+    required: false
+    default: ''
+  branch:
+    required: false
+    default: bot/update-wolffm
+
+outputs:
+  changed:
+    description: "'true' when an update was committed and promoted."
+    value: ${{ steps.commit.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - id: pnpm
+      uses: WolffM/hadoku-actions/setup-pnpm@v1
+      with:
+        node-version: ${{ inputs.node-version }}
+        npm-token: ${{ inputs.npm-token }}
+        vault-key: ${{ inputs.service-key }}
+
+    - name: Update @wolffm/* to latest (majors included)
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+        RECURSIVE: ${{ inputs.recursive }}
+      run: |
+        set -euo pipefail
+        r=''; [ "$RECURSIVE" = 'true' ] && r='-r'
+        pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" update $r --latest "@wolffm/*"
+
+    - name: Post-update
+      if: inputs.post-update != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+      run: ${{ inputs.post-update }}
+
+    - name: Assert every @wolffm dependency is at latest
+      shell: bash
+      env:
+        NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+      run: |
+          node -e '
+            const {execSync}=require("child_process"), fs=require("fs");
+            const seen=new Set(); const stale=[]; const unchecked=[];
+            const manifests=execSync("git ls-files \"*package.json\"").toString().trim().split("\n");
+            for (const m of manifests) {
+              if (!m || m.includes("node_modules")) continue;
+              let pkg; try { pkg=JSON.parse(fs.readFileSync(m,"utf8")); } catch { continue; }
+              for (const field of ["dependencies","devDependencies"]) {
+                for (const [name,range] of Object.entries(pkg[field]||{})) {
+                  if (!name.startsWith("@wolffm/")) continue;
+                  // workspace: and * are not version claims — nothing to compare.
+                  const r=String(range);
+                  if (r.startsWith("workspace:") || r==="*") continue;
+                  // Key by FIELD too, not just name+manifest: a package can sit in
+                  // BOTH dependencies and devDependencies of one file with DIFFERENT
+                  // ranges, and deduping by name alone checked whichever came first
+                  // and silently skipped the stale one.
+                  const key=name+"@"+m+"#"+field; if (seen.has(key)) continue; seen.add(key);
+                  let latest; try {
+                    latest=execSync(`npm view ${name} version --registry=https://npm.pkg.github.com`,{stdio:["ignore","pipe","ignore"]}).toString().trim();
+                  } catch {
+                    // NOT `continue`. An unreachable registry is indistinguishable
+                    // from "at latest" if it is skipped, so a 401 here used to make
+                    // the whole step report success while checking nothing — which
+                    // is exactly what it happened to do wherever the .npmrc was not
+                    // in this step working directory.
+                    unchecked.push(`${name} in ${m}: could not read the registry`);
+                    continue;
+                  }
+                  const declared=(r.match(/(\d+\.\d+\.\d+)/)||[])[1];
+                  if (declared && latest && declared!==latest) {
+                    stale.push(`${name} in ${m}: declares ${r}, latest is ${latest}`);
+                  }
+                }
+              }
+            }
+            if (unchecked.length) {
+              for (const u of unchecked) console.log(`::error::${u}`);
+              console.error(`\n${unchecked.length} @wolffm package(s) could not be checked at all.`);
+              console.error("Usually the .npmrc is not in this step working directory.");
+              process.exit(1);
+            }
+            if (stale.length) {
+              for (const s of stale) console.log(`::error::${s}`);
+              console.error(`\n${stale.length} @wolffm dependency/ies are not at latest.`);
+              console.error("Every @wolffm package must track the newest version, majors included.");
+              console.error("If a major needs code changes, make them — do not pin back.");
+              process.exit(1);
+            }
+            console.log("All @wolffm dependencies are at latest.");
+          '
+
+    - name: Verify before anything is pushed
+      if: inputs.verify != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+      run: |
+        if [ -z "$(git status --porcelain --untracked-files=no)" ]; then
+          echo "Nothing changed; nothing to verify."
+          exit 0
+        fi
+        ${{ inputs.verify }}
+
+    - id: commit
+      name: Commit to the bot branch and promote it
+      shell: bash
+      env:
+        BOT_BRANCH: ${{ inputs.branch }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        REPO_ACTION_KEY: ${{ inputs.service-key }}
+        REPO_ACTION_BROKER: https://hadoku.me/mgmt
+        REPO_ACTION_VERB: promote
+      run: |
+        set -euo pipefail
+        # Tracked files only: what the update, post-update and verify changed.
+        # Never an untracked build artifact.
+        git add -u
+        if git diff --cached --quiet; then
+          echo "✅ No @wolffm package updates available"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        default="$DEFAULT_BRANCH"
+        # Hooks off: husky's core.hooksPath survives on a persistent claw
+        # checkout and would run a repo's dev hooks inside CI.
+        bot=(-c core.hooksPath=/dev/null -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com")
+        git "${bot[@]}" commit -q -m "chore: auto-update @wolffm/* to latest"
+        export REPO_ACTION_BODY="{\"branch\":\"$BOT_BRANCH\"}"
+        for attempt in 1 2 3; do
+          git push -q --force origin "HEAD:refs/heads/$BOT_BRANCH"
+          rc=0; bash "$GITHUB_ACTION_PATH/../repo-action/call.sh" || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            git push -q origin --delete "$BOT_BRANCH" || echo "::warning::could not delete $BOT_BRANCH; the next run force-pushes it"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$rc" -eq 2 ] || exit 1
+          echo "$default moved while this ran (attempt $attempt); rebasing onto it"
+          git fetch -q origin "$default"
+          git "${bot[@]}" rebase -q "origin/$default" || {
+            git rebase --abort
+            echo "::error::the bump no longer applies to $default; the next wolffm_published run starts from scratch"
+            exit 1
+          }
+        done
+        echo "::error::$default kept moving; gave up after 3 promotes"
+        exit 1

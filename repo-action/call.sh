@@ -44,6 +44,12 @@ if [ "$code" = '200' ] && [ "$is_json" = 'yes' ] && [ "$(printf '%s' "$resp" | j
   { echo "response<<EOF_REPO_ACTION"; printf '%s\n' "$resp"; echo "EOF_REPO_ACTION"; } >> "$GITHUB_OUTPUT"
   exit 0
 fi
+if [ "$code" = '409' ] && [ "$is_json" = 'yes' ]; then
+  # promote only: the default branch moved since the bot branch was cut. Exit 2
+  # so a caller can rebase and retry; a plain refusal is exit 1.
+  echo "repo-action ${REPO_ACTION_VERB}: not a fast-forward: $(printf '%s' "$resp" | jq -r '.error')" >&2
+  exit 2
+fi
 if [ "$is_json" = 'yes' ]; then
   echo "::error::repo-action ${REPO_ACTION_VERB} refused (HTTP $code): $(printf '%s' "$resp" | jq -r '.error // .' | head -c 300)"
 else

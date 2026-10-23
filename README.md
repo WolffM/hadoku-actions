@@ -16,6 +16,7 @@ calling repo.
 | [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
 | [`setup-python-venv`](setup-python-venv/action.yml) | setup-python on the fleet's toolcache, then a throwaway venv under `RUNNER_TEMP` — so CI stops installing into an interpreter the whole box shares. |
 | [`repo-action`](repo-action/action.yml) | Asks mgmt-api, with this repo's own service key, to promote a `bot/*` branch onto the default branch or to notify hadoku_site. What every child repo used `HADOKU_SITE_TOKEN` for. |
+| [`update-wolffm`](update-wolffm/action.yml) | Bumps `@wolffm/*` to latest, pushes `bot/update-wolffm` with the job's own token, and promotes it through mgmt-api. Replaces twenty drifted `update-wolffm.yml` bodies and their `HADOKU_SITE_TOKEN`. |
 
 ## Use
 
