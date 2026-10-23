@@ -1,0 +1,25 @@
+name: Expose repo-action to later shell steps
+description: >-
+  Puts the path of repo-action's call.sh in $REPO_ACTION, for a step that must
+  promote or notify from inside its own loop (a release that re-assigns
+  versions when the default branch moves cannot be split into separate
+  `uses:` steps). Same script, same rules as `repo-action`.
+
+# Use:
+#   - uses: WolffM/hadoku-actions/repo-action-cli@v1
+#   - run: |
+#       git push --force origin HEAD:refs/heads/bot/release
+#       rc=0
+#       REPO_ACTION_VERB=promote REPO_ACTION_BODY='{"branch":"bot/release"}' \
+#         REPO_ACTION_KEY="$KEY" bash "$REPO_ACTION" || rc=$?
+#       # 0 promoted, 2 the default branch moved (redo and retry), else refused
+#     env:
+#       KEY: ${{ secrets.KEY_SERVICE_<REPO> }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        echo "REPO_ACTION=$GITHUB_ACTION_PATH/../repo-action/call.sh" >> "$GITHUB_ENV"
+        echo "REPO_ACTION_BROKER=https://hadoku.me/mgmt" >> "$GITHUB_ENV"
