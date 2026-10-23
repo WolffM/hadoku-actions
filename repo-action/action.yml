@@ -1,0 +1,43 @@
+name: Ask mgmt-api for a repo action
+description: >-
+  Promote a bot/* branch onto this repo's default branch, or notify
+  hadoku_site, by asking mgmt-api with this repo's own service key. Replaces
+  every child repo's use of HADOKU_SITE_TOKEN for those two jobs.
+
+# mgmt-api derives the repo from the key's registry row, never from anything
+# sent here, so a key can only ever act on its own repo. Rules:
+# hadoku_site services/mgmt-api/src/lib/repo-actions.ts.
+
+inputs:
+  verb:
+    description: "`promote` or `notify`."
+    required: true
+  body:
+    description: >-
+      JSON request body. promote: {"branch": "bot/<name>"}. notify:
+      {"event_type": "...", "client_payload": {...}}.
+    required: true
+  service-key:
+    description: This repo's KEY_SERVICE_<REPO> secret.
+    required: true
+  broker:
+    description: mgmt-api base URL.
+    required: false
+    default: https://hadoku.me/mgmt
+
+outputs:
+  response:
+    description: mgmt-api's JSON answer.
+    value: ${{ steps.call.outputs.response }}
+
+runs:
+  using: composite
+  steps:
+    - id: call
+      shell: bash
+      env:
+        REPO_ACTION_VERB: ${{ inputs.verb }}
+        REPO_ACTION_BODY: ${{ inputs.body }}
+        REPO_ACTION_KEY: ${{ inputs.service-key }}
+        REPO_ACTION_BROKER: ${{ inputs.broker }}
+      run: bash "$GITHUB_ACTION_PATH/call.sh"

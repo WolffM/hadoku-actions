@@ -77,6 +77,42 @@ jobs:
           fi
           echo "colon-less job-name refused, as it must be"
 
+  repo-action:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      # Both cases stop before the POST: the live verbs move real branches and
+      # send real dispatches, so the real callers cover that path.
+      - name: an empty service key is refused
+        id: nokey
+        continue-on-error: true
+        uses: ./repo-action
+        with:
+          verb: notify
+          body: '{}'
+          service-key: ''
+
+      - name: an unknown verb is refused
+        id: badverb
+        continue-on-error: true
+        uses: ./repo-action
+        with:
+          verb: delete
+          body: '{}'
+          service-key: not-a-real-key
+
+      - name: assert both refusals fired
+        run: |
+          for o in "${{ steps.nokey.outcome }}" "${{ steps.badverb.outcome }}"; do
+            if [ "$o" != "failure" ]; then
+              echo "::error::repo-action accepted a call it must refuse"
+              exit 1
+            fi
+          done
+          echo "empty key and unknown verb refused, as they must be"
+
   report-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 5

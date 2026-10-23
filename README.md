@@ -15,6 +15,7 @@ calling repo.
 | [`report-e2e`](report-e2e/action.yml) | Parses a Playwright or vitest JSON report into per-test rows, enforces the skip rule, and POSTs them to the nightly fleet e2e store. |
 | [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
 | [`setup-python-venv`](setup-python-venv/action.yml) | setup-python on the fleet's toolcache, then a throwaway venv under `RUNNER_TEMP` — so CI stops installing into an interpreter the whole box shares. |
+| [`repo-action`](repo-action/action.yml) | Asks mgmt-api, with this repo's own service key, to promote a `bot/*` branch onto the default branch or to notify hadoku_site. What every child repo used `HADOKU_SITE_TOKEN` for. |
 
 ## Use
 
@@ -279,6 +280,29 @@ Exports each key into `GITHUB_ENV`, masked. `VAULT_FALLBACK_<NAME>` is used only
 when the broker cannot be reached or says it is not ready (non-JSON, 5xx, 503),
 never on a 403/404. The logic is `vault-fetch/fetch.sh`, shared with
 `setup-pnpm`, ported from hadoku_site's local copy with its incident history.
+
+## `repo-action`
+
+```yaml
+permissions:
+  contents: write   # GITHUB_TOKEN pushes bot/update-wolffm; it cannot touch protected main
+steps:
+  # ... commit the change, then:
+  - run: git push --force origin HEAD:refs/heads/bot/update-wolffm
+  - uses: WolffM/hadoku-actions/repo-action@v1
+    with:
+      verb: promote
+      body: '{"branch":"bot/update-wolffm"}'
+      service-key: ${{ secrets.KEY_SERVICE_<REPO> }}
+```
+
+`promote` fast-forwards the default branch to the head of a `bot/*` branch;
+GitHub refuses anything that is not a fast-forward. `notify` sends one of
+`redeploy_service` (`{service, sha}`, the service must deploy from this repo),
+`packages_updated` (`{packages: ["@wolffm/..."], sha}`) or `game_bundle_updated`
+to hadoku_site. mgmt-api works out the repo from the key's registry row and
+never from the request, so a key can only act on its own repo. Retries only
+when mgmt-api did not answer; a refusal fails at once with its reason.
 
 ## Versioning
 
