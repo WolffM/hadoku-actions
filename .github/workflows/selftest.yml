@@ -77,6 +77,33 @@ jobs:
           fi
           echo "colon-less job-name refused, as it must be"
 
+      # timeout-minutes without started-at cannot tell a timeout from a
+      # supersede, so it is refused on EVERY outcome — the green run that wires
+      # it finds out, not the night the job times out. Proven by firing it.
+      - name: timeout-minutes without started-at is refused
+        id: notimer
+        continue-on-error: true
+        uses: ./report-job
+        with:
+          job-name: selftest:no-timer
+          service-key: not-a-real-key
+          timeout-minutes: '60'
+
+      - name: assert the refusal actually fired
+        run: |
+          if [ "${{ steps.notimer.outcome }}" != "failure" ]; then
+            echo "::error::report-job accepted timeout-minutes with no started-at"
+            exit 1
+          fi
+          echo "timeout-minutes without started-at refused, as it must be"
+
+      # The cases above stop before the POST. This one runs the action's shell
+      # EXTRACTED from action.yml against a stand-in curl, so what a timed-out
+      # job sends — status=failed, "timed out after N min" — is asserted, and a
+      # supersede is proven to stay silent.
+      - name: outcome and age cases, against the extracted shell
+        run: bash .github/selftest/report-job-cases.sh
+
   repo-action:
     runs-on: ubuntu-latest
     timeout-minutes: 5

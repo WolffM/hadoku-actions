@@ -40,6 +40,30 @@ calling repo.
 broken and the next real failure arrives as a suppressed reminder rather than a
 new alert.
 
+**Pass `timeout-minutes` if the job sets one.** GitHub reports a
+`timeout-minutes` kill as `cancelled`, the same outcome as concurrency
+superseding a run, and cancels are not reported — so without it a timed-out job
+writes no row and alerts nobody. hadoku-dataplatform's nightly e2e did exactly
+that on 2026-10-24 (#2). With it, a cancel that arrives within a minute of the
+limit (measured from `started-at`, which it therefore requires) is reported as
+`failed`, error `timed out after N min`. An earlier cancel stays silent. Give it
+the same value as the job's own limit:
+
+```yaml
+jobs:
+  e2e:
+    timeout-minutes: 60
+    steps:
+      # ...
+      - if: always()
+        uses: WolffM/hadoku-actions/report-job@v1
+        with:
+          job-name: myrepo:e2e
+          service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
+          started-at: ${{ env.JOB_STARTED_AT }}
+          timeout-minutes: 60
+```
+
 The service key must exist as a repo secret first — rotation refreshes
 credentials, it does not decide which repo gets one. Seed it with
 `POST /mgmt/api/keys/seed-github-secret {name}`, or let the daily
@@ -327,12 +351,20 @@ Callers that cannot afford a fleet-wide break should pin a commit SHA instead of
 `.github/workflows/selftest.yml` has a job per action, and a second one for
 `setup-python-venv`'s guard.
 
-**`report-job`** — the three guards that decide whether a report is honest: an
+**`report-job`** — the guards that decide whether a report is honest: an
 unset key warns rather than failing the caller, a cancelled outcome stays
-silent, and a colon-less `job-name` is refused. The refusal is proven by running
-it and asserting the step failed — a guard nothing fires reads as coverage.
+silent, a colon-less `job-name` is refused, and so is `timeout-minutes` without
+`started-at`. The refusals are proven by running them and asserting the step
+failed — a guard nothing fires reads as coverage.
 
-*Stated gap:* every case stops before the `curl`. Exercising the POST means
+`.github/selftest/report-job-cases.sh` then runs the action's shell, EXTRACTED
+from `action.yml` rather than retyped, against a stand-in `curl` that records
+the payload. That reaches what the `uses:` cases cannot: a cancel at the
+timeout sends `failed` / `timed out after N min`, a cancel well before it sends
+nothing, and every case without `timeout-minutes` behaves as it did before the
+input existed. Run it locally with `bash .github/selftest/report-job-cases.sh`.
+
+*Stated gap:* nothing calls the real endpoint. Exercising the POST means
 writing rows to the live execution log, and a self-test that fabricates
 monitoring data is worse than one with a known gap. The real callers cover it.
 
