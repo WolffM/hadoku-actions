@@ -76,6 +76,14 @@ inputs:
     description: 'Error text recorded on failure. Defaults to a link to the run.'
     required: false
     default: ''
+  timeout-minutes:
+    description: >-
+      The calling job's own `timeout-minutes`. GitHub reports a timeout kill as
+      `cancelled`, the same outcome as concurrency superseding a run; with this
+      set, a cancel that arrives at or past the limit is reported as a failure.
+      Needs `started-at`. Omitted means every cancel stays unreported.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -87,15 +95,48 @@ runs:
         OUTCOME: ${{ inputs.outcome }}
         STARTED_AT: ${{ inputs.started-at }}
         ERROR_MESSAGE: ${{ inputs.error-message }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
         RUN_ID: ${{ github.run_id }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -u
+        # Checked before the outcome, so a bad value is refused on the green
+        # run that wires it, not on the one night the job times out.
+        if [ -n "$TIMEOUT_MINUTES" ]; then
+          case "$TIMEOUT_MINUTES" in
+            0*|*[!0-9]*) echo "::error::timeout-minutes must be a positive whole number of minutes, got '$TIMEOUT_MINUTES'"; exit 1 ;;
+          esac
+          if [ -z "$STARTED_AT" ]; then
+            echo "::error::timeout-minutes needs started-at — without it a timeout cannot be told from a cancel"
+            exit 1
+          fi
+        fi
+
         # A cancel (concurrency superseded the run) is not breakage, and must
         # not clear a live failure streak either — stay silent.
+        #
+        # EXCEPT a timeout. GitHub reports a `timeout-minutes` kill as
+        # `cancelled` too, and that IS breakage: hadoku-dataplatform's nightly
+        # e2e was killed at 60 min on 2026-10-24 and wrote no row, so the
+        # digest called it green (hadoku-actions#2). The job's age tells them
+        # apart. GRACE because started-at is stamped by the job's first step,
+        # a few seconds after the clock timeout-minutes runs on — measured
+        # there, the kill landed 3,610s after started-at against a 3,600s
+        # limit. A supersede inside the last minute reads as a timeout; that
+        # job was about to be one anyway.
+        timed_out=
         case "$OUTCOME" in
           success) status=succeeded ;;
           failure) status=failed ;;
+          cancelled)
+            grace=60
+            if [ -n "$TIMEOUT_MINUTES" ] && [ $(( $(date -u +%s) - STARTED_AT )) -ge $(( TIMEOUT_MINUTES * 60 - grace )) ]; then
+              status=failed
+              timed_out=1
+            else
+              echo "outcome=$OUTCOME — not reported"; exit 0
+            fi
+            ;;
           *) echo "outcome=$OUTCOME — not reported"; exit 0 ;;
         esac
 
@@ -119,24 +160,28 @@ runs:
           duration_ms=0
         fi
 
-        err="${ERROR_MESSAGE:-$JOB_NAME failed — $RUN_URL}"
+        if [ -n "$timed_out" ]; then
+          err="timed out after $TIMEOUT_MINUTES min — $RUN_URL"
+        else
+          err="${ERROR_MESSAGE:-$JOB_NAME failed — $RUN_URL}"
+        fi
 
         # run_id is `gha_<run id>`, and POST /health/api/jobs UPSERTS on it, so a
         # second write for the same run updates the row rather than inventing a
         # second failure.
-          # The key must identify a JOB within a run, not the run. `gha_<run id>`
-          # alone meant every reporting job in one workflow wrote the SAME row and
-          # the last one won — observed 2026-09-02, where
-          # site:deploy-workers:detect-changes was overwritten by
-          # site:deploy-worker:jobplatform-api. Across a matrix that is a false
-          # green: a failed worker's row replaced by a later worker's success.
-          #
-          # The slug keeps the property the upsert exists for — the SAME job
-          # re-posting for the same run still updates its own row rather than
-          # inventing a second failure, which is what tenhands' taskauto relies on
-          # when it posts a previous run's conclusion — while giving each job its
-          # own row. The value stays opaque; nothing parses it back to a run number.
-          slug=$(printf '%s' "$JOB_NAME" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')
+        # The key must identify a JOB within a run, not the run. `gha_<run id>`
+        # alone meant every reporting job in one workflow wrote the SAME row and
+        # the last one won — observed 2026-09-02, where
+        # site:deploy-workers:detect-changes was overwritten by
+        # site:deploy-worker:jobplatform-api. Across a matrix that is a false
+        # green: a failed worker's row replaced by a later worker's success.
+        #
+        # The slug keeps the property the upsert exists for — the SAME job
+        # re-posting for the same run still updates its own row rather than
+        # inventing a second failure, which is what tenhands' taskauto relies on
+        # when it posts a previous run's conclusion — while giving each job its
+        # own row. The value stays opaque; nothing parses it back to a run number.
+        slug=$(printf '%s' "$JOB_NAME" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')
         jq -n --arg st "$status" --arg run "gha_${RUN_ID}_${slug}" --arg name "$JOB_NAME" \
               --arg err "$err" --argjson d "$duration_ms" \
           '{job_name: $name, status: $st, run_id: $run, duration_ms: $d}
