@@ -179,6 +179,55 @@ jobs:
           fi
           echo "failed on the unallowed skip, as it must"
 
+      # post: 'false' — the per-push/PR gate shape: no key, no store. The
+      # checks must still bite (this fixture's skip is unallowed), and nothing
+      # may be sent: the deny store on 5301 would turn any POST into a failure
+      # the "clean" case below would then report.
+      - name: playwright fixture, post false and no key, unallowed skip — still fails
+        id: pw-nopost-unallowed
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-pw-nopost
+          post: 'false'
+          endpoint: http://127.0.0.1:5301/
+      - name: assert post false still failed on the unallowed skip
+        run: |
+          if [ "${{ steps.pw-nopost-unallowed.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e with post false did not fail on an unallowed skip"
+            exit 1
+          fi
+          echo "post false still failed on the unallowed skip, as it must"
+      - name: allow-list covering the fixture's skips, for the clean post-false case
+        run: |
+          node -e "
+            const r = JSON.parse(require('node:fs').readFileSync('report-e2e/fixtures/playwright-report.json','utf8'));
+            const allow = {};
+            const walk = s => { for (const sp of s.specs ?? []) for (const t of sp.tests ?? []) if (t.status === 'skipped') allow[sp.title] = 'selftest'; for (const x of s.suites ?? []) walk(x); };
+            for (const s of r.suites ?? []) walk(s);
+            require('node:fs').writeFileSync(process.env.RUNNER_TEMP + '/nopost-e2e.json', JSON.stringify({ e2eSkipAllow: allow }));
+          "
+      - name: playwright fixture, post false and no key, skips allowed — passes without a POST
+        id: pw-nopost-clean
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-pw-nopost
+          post: 'false'
+          e2e-json: ${{ runner.temp }}/nopost-e2e.json
+          endpoint: http://127.0.0.1:5301/
+      - name: assert post false passed and posted nothing
+        run: |
+          if [ "${{ steps.pw-nopost-clean.outcome }}" != "success" ]; then
+            echo "::error::report-e2e with post false failed a run whose skips are all allowed"
+            exit 1
+          fi
+          echo "post false passed with nothing sent, as it must"
+
       - name: vitest fixture, unallowed skip — fails the job
         id: vt-unallowed
         continue-on-error: true

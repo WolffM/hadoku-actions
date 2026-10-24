@@ -47,8 +47,19 @@ inputs:
     description: App id — what the nightly e2e roster and the digest call this suite.
     required: true
   key:
-    description: This repo's KEY_SERVICE_<APP> service-tier key, sent as X-User-Key.
-    required: true
+    description: >-
+      This repo's KEY_SERVICE_<APP> service-tier key, sent as X-User-Key.
+      Required unless `post` is 'false'.
+    required: false
+    default: ''
+  post:
+    description: >-
+      'false' runs every check (0 tests, an unallowed skip, a failed test) and
+      sends nothing to the store — for a per-push or PR gate whose runs are not
+      the nightly's to record, and which may run where no key is available (a
+      fork PR gets no secrets). Default 'true'.
+    required: false
+    default: 'true'
   nightly-run-id:
     description: >-
       Correlates this run with nightly-e2e.yml's dispatch. Leave unset for a
@@ -122,6 +133,7 @@ runs:
 
     - name: POST the rows to monitoring-api (always, even on a failing run)
       id: post
+      if: inputs.post != 'false'
       shell: bash
       env:
         SERVICE_KEY: ${{ inputs.key }}
@@ -223,11 +235,18 @@ runs:
 
     - name: Fail on 0 tests, an unallowed skip, a failed test, or a failed POST
       shell: bash
+      env:
+        POST: ${{ inputs.post }}
       run: |
         set -euo pipefail
         parsed="$RUNNER_TEMP/report-e2e-parsed.json"
         post_failures_file="$RUNNER_TEMP/report-e2e-post-failures.json"
-        [ -f "$post_failures_file" ] || echo '[]' > "$post_failures_file"
+        # With post 'false' the POST step never ran, so any file here is an
+        # earlier invocation's in the same job ($RUNNER_TEMP is per-job) — not
+        # this one's result.
+        if [ "$POST" = 'false' ] || [ ! -f "$post_failures_file" ]; then
+          echo '[]' > "$post_failures_file"
+        fi
 
         total=$(node -e "
           const fs = require('node:fs');
@@ -237,7 +256,11 @@ runs:
         " "$parsed" "$post_failures_file")
 
         if [ "$total" -eq 0 ]; then
-          echo "all tests accounted for, and the store confirmed every row — nothing failing the job."
+          if [ "$POST" = 'false' ]; then
+            echo "all tests accounted for (post: false, nothing sent to the store) — nothing failing the job."
+          else
+            echo "all tests accounted for, and the store confirmed every row — nothing failing the job."
+          fi
           exit 0
         fi
 
