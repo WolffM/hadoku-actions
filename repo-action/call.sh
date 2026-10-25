@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # One POST to mgmt-api's /api/repo/<verb>. Retried only when mgmt-api did not
-# answer (transport failure, 5xx, or a non-JSON body from the edge), three
-# tries 4s apart, the same policy and reasons as vault-fetch/fetch.sh. A 4xx
-# is mgmt-api saying no and fails at once with its reason.
+# answer (transport failure, 5xx, or a non-JSON body from the edge). A 4xx is
+# mgmt-api saying no and fails at once with its reason.
+#
+# THE RETRY OUTLASTS A RESTART. It was three tries 4s apart, ~9s in all, and
+# mgmt-api is down for 6-11s every time it redeploys: measured over 25
+# redeploys on 2026-10-25, pm2 restart to healthy, none longer. Redeploys run
+# about one an hour (39 on 10-21), so a call landing at the start of one lost
+# every time: fleet-manager 0.34.59 and 0.34.60 published and never told
+# hadoku_site, both on HTTP 502 inside a restart. The backoff below gives up
+# after ~2 minutes, over ten times the worst measured window and enough for two
+# restarts back to back. vault-fetch/fetch.sh keeps its short retry on purpose:
+# it runs at job start and has a declared fallback for an unreachable broker.
 #
 # Both verbs are safe to repeat: promote to the same sha is a no-op, and a
 # repeated redeploy or packages_updated is folded downstream.
@@ -17,7 +26,10 @@ if [ -z "${REPO_ACTION_KEY:-}" ]; then
 fi
 url="${REPO_ACTION_BROKER}/api/repo/${REPO_ACTION_VERB}"
 out="$RUNNER_TEMP/repo-action.$$"
-for attempt in 1 2 3; do
+# Seconds to wait before each retry; the length is the number of retries.
+delays=(4 8 15 30 30 30)
+tries=$(( ${#delays[@]} + 1 ))
+for (( attempt = 1; attempt <= tries; attempt++ )); do
   code=$(curl -sS -m 60 -o "$out" -w '%{http_code}' -X POST \
     -A 'hadoku-ci-repo-action' \
     -H "X-User-Key: $REPO_ACTION_KEY" \
@@ -30,9 +42,10 @@ for attempt in 1 2 3; do
     000|5*) retry='yes' ;;
     *) [ "$is_json" = 'no' ] && retry='yes' || retry='no' ;;
   esac
-  if [ "$retry" = 'yes' ] && [ "$attempt" -lt 3 ]; then
-    echo "repo-action ${REPO_ACTION_VERB}: HTTP $code — retry $attempt/2 in 4s" >&2
-    sleep 4
+  if [ "$retry" = 'yes' ] && [ "$attempt" -lt "$tries" ]; then
+    wait=${delays[$((attempt - 1))]}
+    echo "repo-action ${REPO_ACTION_VERB}: HTTP $code — retry $attempt/$((tries - 1)) in ${wait}s" >&2
+    sleep "$wait"
     continue
   fi
   break
@@ -53,6 +66,6 @@ fi
 if [ "$is_json" = 'yes' ]; then
   echo "::error::repo-action ${REPO_ACTION_VERB} refused (HTTP $code): $(printf '%s' "$resp" | jq -r '.error // .' | head -c 300)"
 else
-  echo "::error::repo-action ${REPO_ACTION_VERB}: no answer from mgmt-api (HTTP $code; body: $(printf '%s' "$resp" | head -c 200 | tr '\n' ' '))"
+  echo "::error::repo-action ${REPO_ACTION_VERB}: no answer from mgmt-api after $tries tries over ~$(IFS=+; echo $(( ${delays[*]} )))s (HTTP $code; body: $(printf '%s' "$resp" | head -c 200 | tr '\n' ' '))"
 fi
 exit 1

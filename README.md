@@ -328,7 +328,11 @@ GitHub refuses anything that is not a fast-forward. `notify` sends one of
 `packages_updated` (`{packages: ["@wolffm/..."], sha}`) or `game_bundle_updated`
 to hadoku_site. mgmt-api works out the repo from the key's registry row and
 never from the request, so a key can only act on its own repo. Retries only
-when mgmt-api did not answer; a refusal fails at once with its reason.
+when mgmt-api did not answer, backing off 4, 8, 15, 30, 30, 30s (about two
+minutes) so a call outlasts a mgmt-api redeploy, which is down for 6-11s each
+time (measured over 25 on 2026-10-25). The old three tries 4s apart gave up
+inside that window. A refusal fails at once with its reason. The same script
+runs under `repo-action-cli` and `update-wolffm`.
 
 ## Versioning
 
