@@ -140,6 +140,11 @@ jobs:
           done
           echo "empty key and unknown verb refused, as they must be"
 
+      # The retry policy, against the REAL call.sh with a stand-in curl and
+      # sleep: a redeploy's 6-11s of 502 is outlasted, a refusal is not retried.
+      - name: retry outlasts a mgmt-api restart, and never retries a refusal
+        run: bash .github/selftest/repo-action-cases.sh
+
   report-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 5
