@@ -31,7 +31,7 @@ inputs:
   vault-key:
     description: >-
       The repo's vault service key (secrets.KEY_SERVICE_<REPO>), with an ACL
-      grant for HADOKU_NPMJS_TOKEN.
+      grant for HADOKU_NPMJS_PUBLISH.
     required: true
   dry-run:
     description: "'true' packs, rewrites and gates, prints the file list, and stops."
@@ -82,7 +82,10 @@ runs:
         VERSION: ${{ steps.prepare.outputs.version }}
       run: |
         set -euo pipefail
-        bash "$GITHUB_ACTION_PATH/../vault-fetch/fetch.sh" HADOKU_NPMJS_TOKEN "$WORK/token"
+        # A granular token with PACKAGE write. An org-write token authenticates
+        # fine and then gets a bare 404 on the PUT, which reads like a missing
+        # package rather than a missing permission.
+        bash "$GITHUB_ACTION_PATH/../vault-fetch/fetch.sh" HADOKU_NPMJS_PUBLISH "$WORK/token"
         # Its own userconfig, run from outside the checkout: the repo's .npmrc
         # and setup-node's ~/.npmrc both point @wolffm at GitHub Packages.
         printf '//registry.npmjs.org/:_authToken=%s\n' "$(cat "$WORK/token")" > "$WORK/npmrc"

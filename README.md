@@ -347,7 +347,7 @@ after the GitHub Packages publish:
 - uses: WolffM/hadoku-actions/publish-npmjs@v1
   with:
     package-dir: packages/rooms-protocol
-    vault-key: ${{ secrets.KEY_SERVICE_<REPO> }}   # granted HADOKU_NPMJS_TOKEN
+    vault-key: ${{ secrets.KEY_SERVICE_<REPO> }}   # granted HADOKU_NPMJS_PUBLISH
 ```
 
 The fleet keeps installing from GitHub Packages and nothing in it changes. A
