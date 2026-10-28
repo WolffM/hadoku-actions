@@ -1,0 +1,116 @@
+name: Publish to npmjs
+description: >-
+  Republish an already-built @wolffm/* workspace package to npmjs as @hadoku/*,
+  for builds outside the fleet. Runs in the same job as the GitHub Packages
+  publish, so the two registries carry the same bytes at the same version.
+
+# WHY THIS EXISTS
+# ---------------
+# GitHub Packages' npm registry demands a token even for a public package, so
+# hadoku-cardtable (a public repo) could not be built by anyone outside the
+# fleet. npmjs serves public packages anonymously. Only the names listed in
+# public-packages.json go there; every other @wolffm/* package stays private on
+# GitHub Packages, and the fleet keeps installing all of them from there.
+#
+# Consumers outside the fleet keep importing @wolffm/* and alias the names:
+#   "@wolffm/themes": "npm:@hadoku/themes@5.12.12"
+# prepare.mjs explains the dependency rewrite that makes that work transitively.
+#
+# A PUBLISH HERE IS PERMANENT. npmjs allows an unpublish for 72 h only and a
+# version number can never be reused, so the leak gate in prepare.mjs runs
+# before the token is even fetched, and `dry-run` exists to read the file list
+# first.
+#
+# Needs node and pnpm on PATH (setup-pnpm), and the package already built: it
+# packs exactly what `pnpm publish` would, including workspace: resolution.
+
+inputs:
+  package-dir:
+    description: The workspace package to publish, relative to the repo root.
+    required: true
+  vault-key:
+    description: >-
+      The repo's vault service key (secrets.KEY_SERVICE_<REPO>), with an ACL
+      grant for HADOKU_NPMJS_TOKEN.
+    required: true
+  dry-run:
+    description: "'true' packs, rewrites and gates, prints the file list, and stops."
+    required: false
+    default: 'false'
+  vault-broker:
+    description: Vault broker base URL. Override only to test.
+    required: false
+    default: https://hadoku.me/mgmt
+
+outputs:
+  name:
+    description: The npmjs name, @hadoku/<name>.
+    value: ${{ steps.prepare.outputs.name }}
+  version:
+    description: The version, identical to the GitHub Packages one.
+    value: ${{ steps.prepare.outputs.version }}
+  published:
+    description: "'true' only when this run published; an existing version is 'false'."
+    value: ${{ steps.publish.outputs.published }}
+
+runs:
+  using: composite
+  steps:
+    - name: Pack, rewrite and gate
+      id: prepare
+      shell: bash
+      env:
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+      run: |
+        set -euo pipefail
+        work="$RUNNER_TEMP/publish-npmjs.$$"
+        mkdir -p "$work/tgz"
+        echo "work=$work" >> "$GITHUB_OUTPUT"
+        (cd "$PACKAGE_DIR" && pnpm pack --pack-destination "$work/tgz" >/dev/null)
+        tgz=$(ls "$work"/tgz/*.tgz)
+        node "$GITHUB_ACTION_PATH/prepare.mjs" "$tgz" "$work/out"
+
+    - name: Publish
+      id: publish
+      if: inputs.dry-run != 'true'
+      shell: bash
+      env:
+        HADOKU_VAULT_KEY: ${{ inputs.vault-key }}
+        VAULT_BROKER: ${{ inputs.vault-broker }}
+        WORK: ${{ steps.prepare.outputs.work }}
+        NAME: ${{ steps.prepare.outputs.name }}
+        VERSION: ${{ steps.prepare.outputs.version }}
+      run: |
+        set -euo pipefail
+        bash "$GITHUB_ACTION_PATH/../vault-fetch/fetch.sh" HADOKU_NPMJS_TOKEN "$WORK/token"
+        # Its own userconfig, run from outside the checkout: the repo's .npmrc
+        # and setup-node's ~/.npmrc both point @wolffm at GitHub Packages.
+        printf '//registry.npmjs.org/:_authToken=%s\n' "$(cat "$WORK/token")" > "$WORK/npmrc"
+        rm -f "$WORK/token"
+        cd "$WORK"
+        npm_() { npm --userconfig "$WORK/npmrc" --registry https://registry.npmjs.org/ "$@"; }
+
+        # Checked BEFORE publishing rather than parsed from a failed publish:
+        # npm's "cannot publish over" wording has changed between releases.
+        set +e
+        out=$(npm_ view "$NAME@$VERSION" version 2>&1); code=$?
+        set -e
+        if [ $code -eq 0 ] && [ "$out" = "$VERSION" ]; then
+          echo "✓ $NAME@$VERSION is already on npmjs — no-op (bump the version to release)"
+          echo "published=false" >> "$GITHUB_OUTPUT"
+        elif echo "$out" | grep -q E404; then
+          npm_ publish "$WORK/out/package" --access public --ignore-scripts
+          echo "📦 Published $NAME@$VERSION to npmjs"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "$out"
+          echo "::error::could not ask npmjs whether $NAME@$VERSION exists (exit $code)"
+          exit 1
+        fi
+
+    - name: Clean up
+      if: always()
+      shell: bash
+      env:
+        WORK: ${{ steps.prepare.outputs.work }}
+      run: '[ -z "$WORK" ] || rm -rf "$WORK"'

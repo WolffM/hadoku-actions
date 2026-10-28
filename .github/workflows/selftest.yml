@@ -782,3 +782,14 @@ jobs:
           fi
           [ "$fail" -eq 0 ] || exit 1
           echo "the isolation assert fires on both shapes"
+
+  publish-npmjs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      # Stops before the publish, which is permanent on npmjs: the rewrite and
+      # every refusal of the leak gate are asserted on throwaway tarballs.
+      - name: rewrite and leak-gate cases
+        run: bash .github/selftest/publish-npmjs-cases.sh
