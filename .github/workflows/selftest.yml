@@ -793,3 +793,55 @@ jobs:
       # every refusal of the leak gate are asserted on throwaway tarballs.
       - name: rewrite and leak-gate cases
         run: bash .github/selftest/publish-npmjs-cases.sh
+
+  # The handoff end to end, short of the upload: stage a throwaway package on
+  # one runner, then publish it with --dry-run from another, exactly as a caller
+  # wires the two jobs. Proves the artifact name, the tarball shape and the
+  # "is it already there" check without making anything permanent.
+  publish-npmjs-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: corepack enable
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      - name: throwaway package
+        run: |
+          mkdir -p "$RUNNER_TEMP/fixture/dist"
+          printf '{"name":"@wolffm/themes","version":"0.0.0-selftest.%s","files":["dist"]}\n' "$GITHUB_RUN_ID" > "$RUNNER_TEMP/fixture/package.json"
+          echo 'export const x = 1;' > "$RUNNER_TEMP/fixture/dist/index.js"
+      - id: stage
+        uses: ./publish-npmjs
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        with:
+          package-dir: ${{ runner.temp }}/fixture
+      - name: outputs
+        env:
+          NAME: ${{ steps.stage.outputs.name }}
+          VERSION: ${{ steps.stage.outputs.version }}
+        run: |
+          [ "$NAME" = '@hadoku/themes' ] || { echo "::error::name=$NAME"; exit 1; }
+          [ "$VERSION" = "0.0.0-selftest.$GITHUB_RUN_ID" ] || { echo "::error::version=$VERSION"; exit 1; }
+
+  publish-npmjs-publish:
+    needs: publish-npmjs-stage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - id: publish
+        uses: ./publish-npmjs/publish
+        with:
+          dry-run: 'true'
+      - name: it found the staged tarball
+        env:
+          STAGED: ${{ steps.publish.outputs.staged }}
+        run: '[ "$STAGED" = npmjs-themes ] || { echo "::error::staged=$STAGED"; exit 1; }'

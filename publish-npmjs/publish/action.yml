@@ -1,0 +1,118 @@
+name: Publish to npmjs
+description: >-
+  Publish every tarball publish-npmjs staged earlier in this run to npmjs,
+  through trusted publishing (OIDC). Runs on a GitHub-hosted runner.
+
+# The caller is its own job, because trusted publishing refuses self-hosted
+# runners (see ../action.yml for why it is not a token):
+#
+#   npmjs:
+#     needs: publish
+#     runs-on: ubuntu-latest
+#     permissions:
+#       id-token: write   # the OIDC token npm exchanges for a publish
+#       actions: read     # to list what this run staged
+#     steps:
+#       - uses: WolffM/hadoku-actions/publish-npmjs/publish@<ref>
+#
+# Each @hadoku/* package names ONE workflow file of ONE repo as its trusted
+# publisher on npmjs (`npm trust github`). A publish from anywhere else fails,
+# so a package moving to another workflow needs its trust moved too.
+#
+# Nothing here checks out or runs repo code, and the job holds no secret: it
+# downloads the gated tarballs and hands them to `npm publish`.
+
+inputs:
+  dry-run:
+    description: "'true' runs `npm publish --dry-run`: everything but the upload."
+    required: false
+    default: 'false'
+
+outputs:
+  staged:
+    description: The artifact names this run staged, space-separated; empty for none.
+    value: ${{ steps.staged.outputs.names }}
+
+runs:
+  using: composite
+  steps:
+    - name: Find what this run staged
+      id: staged
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        # Listed rather than downloaded blind: a run whose staging steps were all
+        # skipped (nothing public changed) is a no-op, not a red download.
+        names=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+          -q '.artifacts[] | select(.name | startswith("npmjs-")) | .name')
+        if [ -z "$names" ]; then
+          echo "Nothing was staged for npmjs in this run."
+          echo "any=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "Staged:"; echo "$names" | sed 's/^/  /'
+          echo "any=true" >> "$GITHUB_OUTPUT"
+          echo "names=$(echo $names)" >> "$GITHUB_OUTPUT"
+        fi
+
+    - if: steps.staged.outputs.any == 'true'
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+
+    # Trusted publishing needs npm >= 11.5.1. Pinned, not @latest, so a new npm
+    # major cannot change what a release does between two runs.
+    - if: steps.staged.outputs.any == 'true'
+      shell: bash
+      run: npm install -g npm@11.16.0 >/dev/null && npm --version
+
+    - if: steps.staged.outputs.any == 'true'
+      uses: actions/download-artifact@v8
+      with:
+        pattern: npmjs-*
+        merge-multiple: true
+        path: ${{ runner.temp }}/npmjs
+
+    - name: Publish
+      if: steps.staged.outputs.any == 'true'
+      shell: bash
+      env:
+        DIR: ${{ runner.temp }}/npmjs
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        cd "$DIR"
+        failed=0
+        dry=(); [ "$DRY_RUN" = 'true' ] && dry=(--dry-run)
+        for tgz in *.tgz; do
+          name=$(tar -xzOf "$tgz" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).name')
+          version=$(tar -xzOf "$tgz" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version')
+          # Checked BEFORE publishing rather than parsed from a failed publish:
+          # npm's "cannot publish over" wording has changed between releases.
+          set +e
+          out=$(npm view "$name@$version" version --registry https://registry.npmjs.org/ 2>&1); code=$?
+          set -e
+          if [ $code -eq 0 ] && [ "$out" = "$version" ]; then
+            echo "✓ $name@$version is already on npmjs — no-op (bump the version to release)"
+          elif echo "$out" | grep -q E404; then
+            # A 404 or ENEEDAUTH here, with the version absent, means the package
+            # has no trusted publisher for THIS repo and workflow file.
+            # npm refuses a prerelease without a tag; `next` keeps it off `latest`.
+            tag=(); [[ "$version" == *-* ]] && tag=(--tag next)
+            if npm publish "$tgz" --access public --registry https://registry.npmjs.org/ "${tag[@]}" "${dry[@]}"; then
+              if [ ${#dry[@]} -eq 0 ]; then echo "📦 Published $name@$version to npmjs"
+              else echo "dry run: would publish $name@$version to npmjs"; fi
+            else
+              echo "::error::npm refused $name@$version — check its trusted publisher (npm trust list $name)"
+              failed=1
+            fi
+          else
+            echo "$out"
+            echo "::error::could not ask npmjs whether $name@$version exists (exit $code)"
+            failed=1
+          fi
+        done
+        exit $failed
