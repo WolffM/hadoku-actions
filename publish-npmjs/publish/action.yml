@@ -63,11 +63,15 @@ runs:
       with:
         node-version: '24'
 
-    # Trusted publishing needs npm >= 11.5.1. Pinned, not @latest, so a new npm
-    # major cannot change what a release does between two runs.
+    # Trusted publishing needs npm >= 11.5.1. Node 24's bundled npm is newer
+    # already; this only matters if the runner image falls behind, and then it
+    # installs a known version rather than @latest.
     - if: steps.staged.outputs.any == 'true'
       shell: bash
-      run: npm install -g npm@11.16.0 >/dev/null && npm --version
+      run: |
+        node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11 || (a===11 && (b>5 || (b===5 && c>=1))) ? 0 : 1)' "$(npm --version)" \
+          || npm install -g npm@11.16.0 >/dev/null
+        npm --version
 
     - if: steps.staged.outputs.any == 'true'
       uses: actions/download-artifact@v8
