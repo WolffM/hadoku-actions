@@ -340,15 +340,34 @@ runs under `repo-action-cli` and `update-wolffm`.
 GitHub Packages asks for a token even for a public package, so nothing that
 depends on `@wolffm/*` can be built from outside the fleet. The packages in
 [`publish-npmjs/public-packages.json`](publish-npmjs/public-packages.json) are
-therefore ALSO published to npmjs as `@hadoku/*`, from the same job, right
-after the GitHub Packages publish:
+therefore ALSO published to npmjs as `@hadoku/*`, in the same run as the GitHub
+Packages publish. It takes two halves, because npmjs publishes through trusted
+publishing (OIDC) and that refuses self-hosted runners:
 
 ```yaml
-- uses: WolffM/hadoku-actions/publish-npmjs@v1
-  with:
-    package-dir: packages/rooms-protocol
-    vault-key: ${{ secrets.KEY_SERVICE_<REPO> }}   # granted HADOKU_NPMJS_PUBLISH
+jobs:
+  publish:                       # the existing job, on our runner
+    steps:
+      # ... build, publish to GitHub Packages, notify ...
+      - uses: WolffM/hadoku-actions/publish-npmjs@v1
+        with:
+          package-dir: packages/rooms-protocol
+
+  npmjs:
+    needs: publish
+    runs-on: ubuntu-latest       # trusted publishing needs a GitHub-hosted runner
+    permissions:
+      id-token: write
+      actions: read
+    steps:
+      - uses: WolffM/hadoku-actions/publish-npmjs/publish@v1
 ```
+
+`publish-npmjs` packs, rewrites and gates the package and uploads the tarball as
+an `npmjs-<name>` artifact. `publish-npmjs/publish` publishes every tarball the
+run staged; it checks nothing out and holds no secret. Each package must name
+that repo and workflow file as its trusted publisher, once:
+`npm trust github @hadoku/<name> --repo WolffM/<repo> --file <workflow>.yml --allow-publish`.
 
 The fleet keeps installing from GitHub Packages and nothing in it changes. A
 consumer outside it keeps importing `@wolffm/*` and aliases the names:
@@ -358,12 +377,12 @@ transitively; peer dependencies keep their `@wolffm/*` names, which the
 consumer's alias satisfies.
 
 **A publish to npmjs is permanent**: an unpublish is allowed for 72 h only, and
-a version can never be reused. So the package is refused, before the token is
-fetched, when it is not on the public list, when it depends on a `@wolffm/*`
+a version can never be reused. So the package is refused, before it leaves our
+runner, when it is not on the public list, when it depends on a `@wolffm/*`
 package that is not, or when the leak gate finds a token, key, private key,
 JWT, webhook, home-directory path, fleet host name or private IP, or an
-`.env`/`.npmrc`/key file. `dry-run: 'true'` stops after the gate and prints the
-file list. An already-published version is a no-op, as on GitHub Packages.
+`.env`/`.npmrc`/key file. `dry-run: 'true'` on either half stops short of the
+upload. An already-published version is a no-op, as on GitHub Packages.
 
 ## Versioning
 
@@ -461,4 +480,7 @@ throwaway tarballs and runs `prepare.mjs` on them: the name and dependency
 rewrite on a clean package, then each refusal (a name not on the public list, a
 private dependency or peer, an unresolved `workspace:` spec, a planted token
 that must not be echoed, a home path in a source map, a fleet host name, a
-shipped `.npmrc`, a non-`@wolffm` name). Nothing is published.
+shipped `.npmrc`, a non-`@wolffm` name). `publish-npmjs-stage` and
+`publish-npmjs-publish` then run the real handoff across two runners: a
+throwaway package is staged, and the publish half finds its artifact, asks npmjs
+whether the version exists and runs `npm publish --dry-run`. Nothing is published.
