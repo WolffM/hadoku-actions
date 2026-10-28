@@ -1,0 +1,14 @@
+{
+  "//": "The @wolffm/* packages that also go to npmjs as @hadoku/*. Adding a name here makes it world-readable on npmjs FOREVER (an unpublish is only allowed for 72 h and the version can never be reused), so it is a decision, not a convenience. A package may depend only on names in this list: anything else would install for the fleet and 401 for everyone else.",
+  "packages": [
+    "catalogue",
+    "cdn-client",
+    "game-stats-ui",
+    "prefs-client",
+    "rooms-protocol",
+    "rooms-server",
+    "task-ui-components",
+    "themes",
+    "watchparty-ui"
+  ]
+}

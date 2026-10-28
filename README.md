@@ -18,6 +18,7 @@ calling repo.
 | [`repo-action`](repo-action/action.yml) | Asks mgmt-api, with this repo's own service key, to promote a `bot/*` branch onto the default branch or to notify hadoku_site. What every child repo used `HADOKU_SITE_TOKEN` for. |
 | [`update-wolffm`](update-wolffm/action.yml) | Bumps `@wolffm/*` to latest, pushes `bot/update-wolffm` with the job's own token, and promotes it through mgmt-api. Replaces twenty drifted `update-wolffm.yml` bodies and their `HADOKU_SITE_TOKEN`. |
 | [`repo-action-cli`](repo-action-cli/action.yml) | Exports `$REPO_ACTION`, the path of `repo-action`'s script, for a step that must promote from inside its own retry loop. Exit 2 means the default branch moved. |
+| [`publish-npmjs`](publish-npmjs/action.yml) | Republishes an already-built `@wolffm/*` package to npmjs as `@hadoku/*`, in the same job as its GitHub Packages publish, behind a leak gate. Only the names in `public-packages.json`. |
 
 ## Use
 
@@ -334,6 +335,36 @@ time (measured over 25 on 2026-10-25). The old three tries 4s apart gave up
 inside that window. A refusal fails at once with its reason. The same script
 runs under `repo-action-cli` and `update-wolffm`.
 
+## publish-npmjs
+
+GitHub Packages asks for a token even for a public package, so nothing that
+depends on `@wolffm/*` can be built from outside the fleet. The packages in
+[`publish-npmjs/public-packages.json`](publish-npmjs/public-packages.json) are
+therefore ALSO published to npmjs as `@hadoku/*`, from the same job, right
+after the GitHub Packages publish:
+
+```yaml
+- uses: WolffM/hadoku-actions/publish-npmjs@v1
+  with:
+    package-dir: packages/rooms-protocol
+    vault-key: ${{ secrets.KEY_SERVICE_<REPO> }}   # granted HADOKU_NPMJS_TOKEN
+```
+
+The fleet keeps installing from GitHub Packages and nothing in it changes. A
+consumer outside it keeps importing `@wolffm/*` and aliases the names:
+`"@wolffm/themes": "npm:@hadoku/themes@5.12.12"`. Dependencies between public
+packages are rewritten to those aliases on the way out, so the alias works
+transitively; peer dependencies keep their `@wolffm/*` names, which the
+consumer's alias satisfies.
+
+**A publish to npmjs is permanent**: an unpublish is allowed for 72 h only, and
+a version can never be reused. So the package is refused, before the token is
+fetched, when it is not on the public list, when it depends on a `@wolffm/*`
+package that is not, or when the leak gate finds a token, key, private key,
+JWT, webhook, home-directory path, fleet host name or private IP, or an
+`.env`/`.npmrc`/key file. `dry-run: 'true'` stops after the gate and prints the
+file list. An already-published version is a no-op, as on GitHub Packages.
+
 ## Versioning
 
 **`v1` is a release tag, moved deliberately. It is never a branch alias.**
@@ -424,3 +455,10 @@ holds no service key. The first caller to adopt `vault-key` covers it.
 working is caught), that `setup-node` wrote a *tokenless* npmrc carrying
 `${NODE_AUTH_TOKEN}`, that an empty credential is refused — again by firing it —
 and that `assert-token: 'false'` still skips the check.
+
+**`publish-npmjs`** — `.github/selftest/publish-npmjs-cases.sh` packs
+throwaway tarballs and runs `prepare.mjs` on them: the name and dependency
+rewrite on a clean package, then each refusal (a name not on the public list, a
+private dependency or peer, an unresolved `workspace:` spec, a planted token
+that must not be echoed, a home path in a source map, a fleet host name, a
+shipped `.npmrc`, a non-`@wolffm` name). Nothing is published.
