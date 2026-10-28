@@ -181,16 +181,22 @@ runs:
         # inventing a second failure, which is what tenhands' taskauto relies on
         # when it posts a previous run's conclusion — while giving each job its
         # own row. The value stays opaque; nothing parses it back to a run number.
+        # The job's own temp dir, never a fixed name in the shared /tmp: two jobs
+        # on one node overwrote each other's body, and a file left by another
+        # user cannot be overwritten at all. claw-5, 2026-10-28: after its CI
+        # moved to its own user, admin's old /tmp/report-job.json turned every
+        # green job red with "Permission denied".
+        body="${RUNNER_TEMP:-$(mktemp -d)}/report-job-$$.json"
         slug=$(printf '%s' "$JOB_NAME" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')
         jq -n --arg st "$status" --arg run "gha_${RUN_ID}_${slug}" --arg name "$JOB_NAME" \
               --arg err "$err" --argjson d "$duration_ms" \
           '{job_name: $name, status: $st, run_id: $run, duration_ms: $d}
-           + (if $st == "failed" then {error: $err} else {} end)' > /tmp/report-job.json
+           + (if $st == "failed" then {error: $err} else {} end)' > "$body"
 
         # Never fail the job over a reporting blip. `-f` so a non-2xx shows.
         curl -sS -f -X POST https://hadoku.me/health/api/jobs \
           -H "X-User-Key: $SERVICE_KEY" \
           -H 'Content-Type: application/json' \
-          --data @/tmp/report-job.json \
+          --data @"$body" \
           && echo "reported $JOB_NAME=$status (${duration_ms}ms)" \
           || echo "::warning::could not report $JOB_NAME to monitoring-api"
