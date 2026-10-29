@@ -4,11 +4,15 @@
     "catalogue",
     "cdn-client",
     "game-stats-ui",
+    "jobplatform",
+    "jobplatform-worker",
+    "logger",
     "prefs-client",
     "rooms-protocol",
     "rooms-server",
     "task-ui-components",
     "themes",
-    "watchparty-ui"
+    "watchparty-ui",
+    "worker-utils"
   ]
 }
