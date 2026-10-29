@@ -224,6 +224,37 @@ runs:
         # checkout and would run a repo's dev hooks inside CI.
         bot=(-c core.hooksPath=/dev/null -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com")
         git "${bot[@]}" commit -q -m "chore: auto-update @wolffm/* to latest"
+        # A re-run of a run whose promote LANDED (2026-10-28: only its
+        # report-job step had failed) replays the bump from the dispatch's
+        # stale checkout and conflicts with its own commit, paging @here for
+        # nothing. Succeeds when every versioned @wolffm/* range the bot
+        # commit declares is declared at that version or newer by the same
+        # manifest on $1. No manifest in the commit, or any range missing or
+        # older there, is a real conflict.
+        bump_already_on() {
+          git diff --name-only HEAD~1 HEAD -- '*package.json' | BASE="$1" node -e '
+            const {execFileSync}=require("child_process");
+            const files=require("fs").readFileSync(0,"utf8").split("\n").filter(Boolean);
+            const show=(rev,f)=>{ try { return JSON.parse(execFileSync("git",["show",rev+":"+f],{stdio:["ignore","pipe","ignore"]})); } catch { return null; } };
+            const ver=r=>(String(r).match(/(\d+)\.(\d+)\.(\d+)/)||[]).slice(1).map(Number);
+            const atLeast=(have,want)=>{ for (let i=0;i<3;i++) if (have[i]!==want[i]) return have[i]>want[i]; return true; };
+            let checked=0;
+            for (const f of files) {
+              const mine=show("HEAD",f), base=show(process.env.BASE,f);
+              if (!mine || !base) process.exit(1);
+              for (const field of ["dependencies","devDependencies"]) {
+                for (const [name,range] of Object.entries(mine[field]||{})) {
+                  if (!name.startsWith("@wolffm/")) continue;
+                  const want=ver(range); if (want.length!==3) continue;
+                  const have=ver((base[field]||{})[name]||"");
+                  if (have.length!==3 || !atLeast(have,want)) process.exit(1);
+                  checked++;
+                }
+              }
+            }
+            process.exit(checked ? 0 : 1);
+          '
+        }
         export REPO_ACTION_BODY="{\"branch\":\"$BOT_BRANCH\"}"
         for attempt in 1 2 3; do
           # Rebase BEFORE every push, the first included. A dispatch pins the
@@ -235,9 +266,21 @@ runs:
           git fetch -q origin "$default"
           git "${bot[@]}" rebase -q "origin/$default" || {
             git rebase --abort
+            if bump_already_on "origin/$default"; then
+              echo "✅ $default already carries this bump; nothing to promote"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "::error::the bump no longer applies to $default; the next wolffm_published run starts from scratch"
             exit 1
           }
+          # The same re-run, when the lockfiles match exactly: rebase drops
+          # the commit as already upstream and leaves nothing to push.
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$default")" ]; then
+            echo "✅ $default already carries this bump; nothing to promote"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git push -q --force origin "HEAD:refs/heads/$BOT_BRANCH"
           rc=0; bash "$GITHUB_ACTION_PATH/../repo-action/call.sh" || rc=$?
           if [ "$rc" -eq 0 ]; then

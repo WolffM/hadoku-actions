@@ -145,6 +145,18 @@ jobs:
       - name: retry outlasts a mgmt-api restart, and never retries a refusal
         run: bash .github/selftest/repo-action-cases.sh
 
+  update-wolffm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      # The commit-and-promote shell EXTRACTED from action.yml, against a
+      # throwaway origin and a stand-in promote: a re-run after a landed bump
+      # ends green with no promote, and a real conflict still fails.
+      - name: promote, re-run and conflict cases, against the extracted shell
+        run: bash .github/selftest/update-wolffm-cases.sh
+
   report-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 5
