@@ -157,6 +157,12 @@ jobs:
       - name: promote, re-run and conflict cases, against the extracted shell
         run: bash .github/selftest/update-wolffm-cases.sh
 
+      # The latest-version assert EXTRACTED from action.yml, against a stand-in
+      # npm: a release published mid-run passes (its own dispatch bumps it),
+      # real drift and missing registry data still fail.
+      - name: latest-version assert cases, against the extracted shell
+        run: bash .github/selftest/update-wolffm-assert-cases.sh
+
   report-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 5

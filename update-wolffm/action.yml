@@ -73,7 +73,8 @@ runs:
         npm-token: ${{ inputs.npm-token }}
         vault-key: ${{ inputs.service-key }}
 
-    - name: Update @wolffm/* to latest (majors included)
+    - id: update
+      name: Update @wolffm/* to latest (majors included)
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -81,6 +82,9 @@ runs:
         RECURSIVE: ${{ inputs.recursive }}
       run: |
         set -euo pipefail
+        # When "latest" was read: the assert below forgives only releases
+        # published after this.
+        echo "resolved-at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
         r=''; [ "$RECURSIVE" = 'true' ] && r='-r'
         pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" update $r --latest "@wolffm/*"
 
@@ -122,14 +126,27 @@ runs:
           (cd "$WORKDIR" && pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" install --lockfile-only)
         fi
 
-    - name: Assert every @wolffm dependency is at latest
+    # A release published WHILE this job ran is not drift: its publish
+    # dispatched its own run, which bumps it. Failing on it paged @here three
+    # times for one burst on 2026-10-23 (#1). It is forgiven only when nothing
+    # newer than the declared version existed before the update resolved, and
+    # the publish times come from the registry; anything missing is stale.
+    - id: assert
+      name: Assert every @wolffm dependency is at latest
       shell: bash
       env:
         NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+        RESOLVED_AT: ${{ steps.update.outputs.resolved-at }}
       run: |
           node -e '
             const {execSync}=require("child_process"), fs=require("fs");
-            const seen=new Set(); const stale=[]; const unchecked=[];
+            const seen=new Set(); const stale=[]; const unchecked=[]; const midRun=[];
+            // Registry metadata lags a publish by seconds, so a release that
+            // landed just before the update may not have been seen by it. It
+            // dispatched its own run all the same. No timestamp forgives nothing.
+            const forgiveAfter=/^\d+$/.test(process.env.RESOLVED_AT||"") ? Number(process.env.RESOLVED_AT)*1000 - 120*1000 : NaN;
+            const semver=v=>(String(v).match(/^(\d+)\.(\d+)\.(\d+)$/)||[]).slice(1).map(Number);
+            const newer=(a,b)=>{ const x=semver(a), y=semver(b); if (x.length!==3 || y.length!==3) return false; for (let i=0;i<3;i++) if (x[i]!==y[i]) return x[i]>y[i]; return false; };
             const manifests=execSync("git ls-files \"*package.json\"").toString().trim().split("\n");
             for (const m of manifests) {
               if (!m || m.includes("node_modules")) continue;
@@ -145,8 +162,9 @@ runs:
                   // ranges, and deduping by name alone checked whichever came first
                   // and silently skipped the stale one.
                   const key=name+"@"+m+"#"+field; if (seen.has(key)) continue; seen.add(key);
-                  let latest; try {
-                    latest=execSync(`npm view ${name} version --registry=https://npm.pkg.github.com`,{stdio:["ignore","pipe","ignore"]}).toString().trim();
+                  let latest, times; try {
+                    const info=JSON.parse(execSync(`npm view ${name} version time --json --registry=https://npm.pkg.github.com`,{stdio:["ignore","pipe","ignore"]}).toString());
+                    latest=info.version; times=info.time||{};
                   } catch {
                     // NOT `continue`. An unreachable registry is indistinguishable
                     // from "at latest" if it is skipped, so a 401 here used to make
@@ -158,11 +176,18 @@ runs:
                   }
                   const declared=(r.match(/(\d+\.\d+\.\d+)/)||[])[1];
                   if (declared && latest && declared!==latest) {
-                    stale.push(`${name} in ${m}: declares ${r}, latest is ${latest}`);
+                    const publishedMidRun=Date.parse(times[latest]) >= forgiveAfter;
+                    const missedBefore=Object.keys(times).filter(v => newer(v,declared) && !(Date.parse(times[v]) >= forgiveAfter));
+                    if (publishedMidRun && !missedBefore.length) {
+                      midRun.push(`${name} in ${m}: declares ${r}, ${latest} was published at ${times[latest]}, after this run resolved; its own dispatch bumps it`);
+                    } else {
+                      stale.push(`${name} in ${m}: declares ${r}, latest is ${latest}`);
+                    }
                   }
                 }
               }
             }
+            for (const s of midRun) console.log(`::notice::${s}`);
             if (unchecked.length) {
               for (const u of unchecked) console.log(`::error::${u}`);
               console.error(`\n${unchecked.length} @wolffm package(s) could not be checked at all.`);
