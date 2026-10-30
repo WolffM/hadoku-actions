@@ -199,7 +199,11 @@ runs:
           # write no response body at all, and the error message below must
           # not read a PREVIOUS chunk's leftover content.
           rm -f "$RUNNER_TEMP/report-e2e-post-$i.json"
-          status_code=$(curl -sS -o "$RUNNER_TEMP/report-e2e-post-$i.json" -w "%{http_code}" \
+          # Bounded, so an unanswered POST becomes the curl_exit failure
+          # below instead of holding the job until its timeout-minutes: on
+          # 2026-10-29 one held watchparty's nightly for 11 minutes
+          # (hadoku-actions#4).
+          status_code=$(curl -sS --connect-timeout 10 --max-time 60 -o "$RUNNER_TEMP/report-e2e-post-$i.json" -w "%{http_code}" \
             -X POST "$ENDPOINT" \
             -H "X-User-Key: $SERVICE_KEY" \
             -H 'Content-Type: application/json' \

@@ -177,7 +177,8 @@ jobs:
         run: |
           python3 .github/selftest/fake-e2e-store.py ok 5300 &
           python3 .github/selftest/fake-e2e-store.py deny 5301 &
-          for p in 5300 5301; do
+          python3 .github/selftest/fake-e2e-store.py hang 5302 &
+          for p in 5300 5301 5302; do
             for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$p/" && break; sleep 0.25; done
           done
 
@@ -250,6 +251,36 @@ jobs:
             exit 1
           fi
           echo "post false passed with nothing sent, as it must"
+
+      # A store that reads the POST and never answers (hadoku-actions#4: the
+      # live one did, and held a nightly for 11 minutes). Skips are allowed,
+      # so the POST is the only thing that can fail this. Unbounded, curl
+      # would wait out this job's timeout-minutes and the job would die here.
+      - name: record when the unanswered POST starts
+        run: echo "HANG_START=$(date -u +%s)" >> "$GITHUB_ENV"
+      - name: playwright fixture, store never answers — fails on the POST, promptly
+        id: pw-hang
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/playwright-report.json
+          runner: playwright
+          app: selftest-pw-hang
+          key: selftest-key
+          e2e-json: ${{ runner.temp }}/nopost-e2e.json
+          endpoint: http://127.0.0.1:5302/
+      - name: assert the unanswered POST failed and did not hold the job
+        run: |
+          took=$(( $(date -u +%s) - HANG_START ))
+          if [ "${{ steps.pw-hang.outcome }}" != "failure" ]; then
+            echo "::error::report-e2e did not fail when the store never answered (outcome ${{ steps.pw-hang.outcome }})"
+            exit 1
+          fi
+          if [ "$took" -gt 120 ]; then
+            echo "::error::the unanswered POST held the job ${took}s; curl is not bounded"
+            exit 1
+          fi
+          echo "the unanswered POST failed after ${took}s, as it must"
 
       - name: vitest fixture, unallowed skip — fails the job
         id: vt-unallowed
