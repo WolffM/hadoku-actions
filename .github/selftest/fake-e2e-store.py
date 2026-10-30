@@ -3,11 +3,13 @@
 `ok` answers 200 with `{"inserted": len(results)}`, reading the real body so
 the self-test can assert the row count that actually arrived. `deny` answers
 a JSON 403 — a transport/auth failure the action must WARN on, never fail the
-caller's job over.
+caller's job over. `hang` reads the request and never answers, the way the
+live store did on 2026-10-29 (hadoku-actions#4).
 """
 import http.server
 import json
 import sys
+import time
 
 MODE, PORT = sys.argv[1], int(sys.argv[2])
 
@@ -16,6 +18,9 @@ class Store(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
         body = json.loads(self.rfile.read(length)) if length else {}
+        if MODE == 'hang':
+            time.sleep(3600)
+            return
         if MODE == 'ok':
             code, resp = 200, {'inserted': len(body.get('results', []))}
         else:

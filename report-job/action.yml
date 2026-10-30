@@ -194,7 +194,11 @@ runs:
            + (if $st == "failed" then {error: $err} else {} end)' > "$body"
 
         # Never fail the job over a reporting blip. `-f` so a non-2xx shows.
-        curl -sS -f -X POST https://hadoku.me/health/api/jobs \
+        # Bounded, because the `||` below only runs once curl returns: on
+        # 2026-10-29 an unanswered POST held watchparty's green `rust` job for
+        # 38 minutes until its timeout-minutes killed it, and the run read as
+        # cancelled (hadoku-actions#4).
+        curl -sS -f --connect-timeout 10 --max-time 30 -X POST https://hadoku.me/health/api/jobs \
           -H "X-User-Key: $SERVICE_KEY" \
           -H 'Content-Type: application/json' \
           --data @"$body" \

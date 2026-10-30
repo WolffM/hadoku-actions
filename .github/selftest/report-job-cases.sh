@@ -27,6 +27,7 @@ PY
 mkdir "$work/bin"
 cat > "$work/bin/curl" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$@" > "$CURL_RECORD.args"
 while [ $# -gt 0 ]; do
   case "$1" in --data) cp "${2#@}" "$CURL_RECORD"; shift ;; esac
   shift
@@ -88,6 +89,18 @@ run 'timeout without started-at'           1 unreported '' -- TIMEOUT_MINUTES=60
 run 'non-numeric timeout'                  1 unreported '' -- TIMEOUT_MINUTES=60m STARTED_AT=$((now - 30))
 run 'zero timeout'                         1 unreported '' -- TIMEOUT_MINUTES=0 STARTED_AT=$((now - 30))
 run 'leading-zero timeout (octal in $(( )))' 1 unreported '' -- TIMEOUT_MINUTES=08 STARTED_AT=$((now - 30))
+
+# An unanswered POST must not hold the caller's job (hadoku-actions#4), so the
+# curl is bounded on the connect and on the whole transfer.
+run 'success, read for the curl bounds'    0 succeeded '' -- STARTED_AT=$((now - 30))
+for flag in --connect-timeout --max-time; do
+  if grep -qx -- "$flag" "$work/payload.json.args"; then
+    echo "ok   curl carries $flag"
+  else
+    echo "FAIL curl carries no $flag: an unanswered POST would hold the job until its timeout"
+    fails=$((fails + 1))
+  fi
+done
 
 if [ "$fails" -gt 0 ]; then
   echo "::error::$fails report-job case(s) failed"
