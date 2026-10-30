@@ -67,11 +67,11 @@ check '.scripts' '{"postinstall":"node setup.js"}'
 tarball not-public '{"name":"@wolffm/dev-vault","version":"1.0.0"}'
 run not-public 1 '@wolffm/dev-vault is not in public-packages.json'
 
-tarball private-dep '{"name":"@wolffm/themes","version":"1.0.0","dependencies":{"@wolffm/logger":"1.0.0"}}'
-run private-dep 1 'dependencies: @wolffm/logger is not public'
+tarball private-dep '{"name":"@wolffm/themes","version":"1.0.0","dependencies":{"@wolffm/dev-vault":"1.0.0"}}'
+run private-dep 1 'dependencies: @wolffm/dev-vault is not public'
 
-tarball private-peer '{"name":"@wolffm/themes","version":"1.0.0","peerDependencies":{"@wolffm/logger":"*"}}'
-run private-peer 1 'peerDependencies: @wolffm/logger is not public'
+tarball private-peer '{"name":"@wolffm/themes","version":"1.0.0","peerDependencies":{"@wolffm/dev-vault":"*"}}'
+run private-peer 1 'peerDependencies: @wolffm/dev-vault is not public'
 
 tarball unresolved '{"name":"@wolffm/themes","version":"1.0.0","dependencies":{"@wolffm/prefs-client":"workspace:*"}}'
 run unresolved 1 'has spec "workspace:*"'
