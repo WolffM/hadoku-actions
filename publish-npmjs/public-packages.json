@@ -8,6 +8,7 @@
     "jobplatform-worker",
     "logger",
     "prefs-client",
+    "resume-bot",
     "rooms-protocol",
     "rooms-server",
     "task-ui-components",
