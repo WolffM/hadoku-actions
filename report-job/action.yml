@@ -198,9 +198,25 @@ runs:
         # 2026-10-29 an unanswered POST held watchparty's green `rust` job for
         # 38 minutes until its timeout-minutes killed it, and the run read as
         # cancelled (hadoku-actions#4).
-        curl -sS -f --connect-timeout 10 --max-time 30 -X POST https://hadoku.me/health/api/jobs \
+        #
+        # A GitHub-HOSTED runner never gets through: hadoku.me's Bot Fight Mode
+        # answers every request from those IPs with a challenge page (403,
+        # `cf-mitigated: challenge`) before any worker runs. Every npmjs job
+        # reported into that wall from day one and read as a generic warning,
+        # so nobody knew its failures could not page. Say which wall it is.
+        hdr="${body%.json}.headers"
+        code=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -D "$hdr" -w '%{http_code}' \
+          -X POST https://hadoku.me/health/api/jobs \
           -H "X-User-Key: $SERVICE_KEY" \
           -H 'Content-Type: application/json' \
-          --data @"$body" \
-          && echo "reported $JOB_NAME=$status (${duration_ms}ms)" \
-          || echo "::warning::could not report $JOB_NAME to monitoring-api"
+          --data @"$body") || true
+        case "$code" in
+          2??) echo "reported $JOB_NAME=$status (${duration_ms}ms)" ;;
+          *)
+            if grep -qi '^cf-mitigated:' "$hdr" 2>/dev/null; then
+              echo "::warning::could not report $JOB_NAME: Cloudflare challenged this runner (HTTP $code). A GitHub-hosted runner cannot reach hadoku.me; report this job from a self-hosted job that needs it, with outcome set to needs.<job>.result."
+            else
+              echo "::warning::could not report $JOB_NAME to monitoring-api (HTTP ${code:-none})"
+            fi
+            ;;
+        esac

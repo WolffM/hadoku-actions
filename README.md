@@ -359,9 +359,32 @@ jobs:
     permissions:
       id-token: write
       actions: read
+    outputs:
+      started-at: ${{ steps.start.outputs.at }}
     steps:
+      - id: start
+        run: echo "at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
       - uses: WolffM/hadoku-actions/publish-npmjs/publish@v1
+
+  npmjs-report:                  # a hosted runner cannot reach hadoku.me; ours reports for it
+    needs: npmjs
+    if: always()
+    runs-on: ${{ fromJSON(vars.CI_RUNNER) }}
+    steps:
+      - run: echo "JOB_STARTED_AT=${{ needs.npmjs.outputs.started-at }}" >> "$GITHUB_ENV"
+      - if: always()
+        uses: WolffM/hadoku-actions/report-job@v1
+        with:
+          job-name: <repo>:publish-npmjs
+          outcome: ${{ needs.npmjs.result }}
+          service-key: ${{ secrets.KEY_SERVICE_<APP> }}
+          started-at: ${{ env.JOB_STARTED_AT }}
 ```
+
+The hosted job does not report for itself. Cloudflare's Bot Fight Mode
+challenges every request from a GitHub-hosted runner to hadoku.me (403,
+`cf-mitigated: challenge`) before any worker sees it, so its report never
+lands; `npmjs-report` runs on our runner and reports the hosted job's result.
 
 `publish-npmjs` packs, rewrites and gates the package and uploads the tarball as
 an `npmjs-<name>` artifact. `publish-npmjs/publish` publishes every tarball the
