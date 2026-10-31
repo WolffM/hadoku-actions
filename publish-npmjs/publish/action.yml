@@ -15,6 +15,10 @@ description: >-
 #     steps:
 #       - uses: WolffM/hadoku-actions/publish-npmjs/publish@<ref>
 #
+# This job cannot report its own outcome: Cloudflare challenges every request
+# from a GitHub-hosted runner to hadoku.me. A self-hosted job that `needs` it
+# reports it instead; the README has the full caller.
+#
 # Each @hadoku/* package names ONE workflow file of ONE repo as its trusted
 # publisher on npmjs (`npm trust github`). A publish from anywhere else fails,
 # so a package moving to another workflow needs its trust moved too.

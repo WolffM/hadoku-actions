@@ -29,9 +29,13 @@ cat > "$work/bin/curl" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$CURL_RECORD.args"
 while [ $# -gt 0 ]; do
-  case "$1" in --data) cp "${2#@}" "$CURL_RECORD"; shift ;; esac
+  case "$1" in
+    --data) cp "${2#@}" "$CURL_RECORD"; shift ;;
+    -D) printf '%b' "${FAKE_HEADERS:-}" > "$2"; shift ;;
+  esac
   shift
 done
+printf '%s' "${FAKE_CODE:-200}"
 SH
 chmod +x "$work/bin/curl"
 
@@ -101,6 +105,27 @@ for flag in --connect-timeout --max-time; do
     fails=$((fails + 1))
   fi
 done
+
+# What a failed POST says. A hosted runner is challenged by Cloudflare before
+# any worker runs, and the warning has to name that, not "could not report".
+said() {
+  local name=$1 want=$2; shift 2
+  local out
+  out=$(env -i PATH="$work/bin:$PATH" HOME="$work" CURL_RECORD="$work/said.json" \
+        JOB_NAME=selftest:said SERVICE_KEY=k OUTCOME=success STARTED_AT= \
+        ERROR_MESSAGE= TIMEOUT_MINUTES= RUN_ID=1 RUN_URL=https://example.invalid/run \
+        "$@" bash "$work/body.sh" 2>&1)
+  if [[ "$out" == *"$want"* ]]; then
+    echo "ok   $name"
+  else
+    echo "FAIL $name: wanted '$want' in:"
+    echo "$out" | sed 's/^/    /'
+    fails=$((fails + 1))
+  fi
+}
+said 'a 2xx is reported'                 'reported selftest:said=succeeded'
+said 'a Cloudflare challenge is named'   'Cloudflare challenged this runner (HTTP 403)' FAKE_CODE=403 FAKE_HEADERS='server: cloudflare\ncf-mitigated: challenge\n'
+said 'any other refusal shows its code'  'could not report selftest:said to monitoring-api (HTTP 403)' FAKE_CODE=403 FAKE_HEADERS='content-type: application/json\n'
 
 if [ "$fails" -gt 0 ]; then
   echo "::error::$fails report-job case(s) failed"
