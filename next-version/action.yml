@@ -1,0 +1,34 @@
+name: Next version
+description: >-
+  Set package.json's version, in this workspace only, to one patch above the
+  newest version on the package's registry. Nothing is committed back. A
+  committed version above the registry's newest is kept as it stands.
+
+inputs:
+  package-dir:
+    description: Directory holding the package.json to version. Default '.'.
+    required: false
+    default: .
+
+outputs:
+  version:
+    description: The version now in package.json.
+    value: ${{ steps.next.outputs.version }}
+  published:
+    description: >-
+      'true' when the registry's newest version was published by this very
+      commit (its gitHead is GITHUB_SHA): a re-run, so skip the publish and
+      run whatever followed it.
+    value: ${{ steps.next.outputs.published }}
+
+# Reads the registry through npm, so the caller's setup-node (registry-url +
+# scope) and NODE_AUTH_TOKEN with read access must already be in place. An
+# unreadable registry FAILS this step; only a 404 means "never published".
+runs:
+  using: composite
+  steps:
+    - id: next
+      shell: bash
+      env:
+        NEXT_VERSION_DIR: ${{ inputs.package-dir }}
+      run: node "$GITHUB_ACTION_PATH/next-version.mjs"

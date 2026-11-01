@@ -1,0 +1,62 @@
+name: sync main to ppe
+
+# REUSABLE. Each adopting repo calls it from a thin
+# .github/workflows/ppe-sync.yml on `push: branches: [main]`.
+#
+# A push to main is either a promotion (already in ppe: this exits at once) or
+# a bot's or an operator hotfix's (merged into ppe here, so the next promotion
+# is still a fast-forward). The merge is pushed with the deploy key so CI runs
+# on it like any other ppe push. A conflict is an issue and a red job; it is
+# never forced.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "The caller's runs-on, as JSON: pass the caller's vars.CI_RUNNER."
+        type: string
+        required: true
+      report-job-name:
+        description: "worker:job name for report-job (e.g. myrepo:ppe-sync). Empty skips the report."
+        type: string
+        default: ''
+    secrets:
+      deploy-key:
+        description: The repo's write deploy key (PPE_PROMOTE_KEY).
+        required: true
+      service-key:
+        description: The repo's KEY_SERVICE_* for report-job. Optional.
+        required: false
+
+jobs:
+  sync:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 10
+    # NOT the promoter's group: GitHub cancels the PENDING run of a group when
+    # another queues, so sharing one would let a CI completion silently drop a
+    # bot's sync. A merge and a revert racing on ppe is safe without it: both
+    # push without force, and the loser is refused and decides again.
+    concurrency:
+      group: ppe-sync-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Mark the start, so the reported duration is real
+        run: echo "JOB_STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Merge main into ppe
+        uses: WolffM/hadoku-actions/sync-main-to-ppe@v1
+        with:
+          deploy-key: ${{ secrets.deploy-key }}
+          github-token: ${{ github.token }}
+
+      - name: Report the outcome so a silent failure can't hide
+        if: always() && inputs.report-job-name != ''
+        uses: WolffM/hadoku-actions/report-job@v1
+        with:
+          job-name: ${{ inputs.report-job-name }}
+          service-key: ${{ secrets.service-key }}
+          started-at: ${{ env.JOB_STARTED_AT }}
+          timeout-minutes: 10

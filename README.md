@@ -19,6 +19,9 @@ calling repo.
 | [`update-wolffm`](update-wolffm/action.yml) | Bumps `@wolffm/*` to latest, pushes `bot/update-wolffm` with the job's own token, and promotes it through mgmt-api. Replaces twenty drifted `update-wolffm.yml` bodies and their `HADOKU_SITE_TOKEN`. |
 | [`repo-action-cli`](repo-action-cli/action.yml) | Exports `$REPO_ACTION`, the path of `repo-action`'s script, for a step that must promote from inside its own retry loop. Exit 2 means the default branch moved. |
 | [`publish-npmjs`](publish-npmjs/action.yml) | Republishes an already-built `@wolffm/*` package to npmjs as `@hadoku/*`, in the same job as its GitHub Packages publish, behind a leak gate. Only the names in `public-packages.json`. |
+| [`promote`](promote/action.yml) | Fast-forwards `main` to the newest green `ppe` commit on the cadence, and reverts the first red `ppe` push since the last green. Called through the reusable [`promote.yml`](.github/workflows/promote.yml). |
+| [`sync-main-to-ppe`](sync-main-to-ppe/action.yml) | Merges a non-promotion push to `main` (a bot's) into `ppe`, so promotion stays a fast-forward. Called through the reusable [`sync-main-to-ppe.yml`](.github/workflows/sync-main-to-ppe.yml). |
+| [`next-version`](next-version/action.yml) | Sets `package.json`'s version, in the CI workspace only, to one patch above the newest on the registry. Nothing is committed back. |
 
 ## Use
 
@@ -407,6 +410,126 @@ JWT, webhook, home-directory path, fleet host name or private IP, or an
 `.env`/`.npmrc`/key file. `dry-run: 'true'` on either half stops short of the
 upload. An already-published version is a no-op, as on GitHub Packages.
 
+## ppe promotion
+
+Every adopting repo has a `ppe` branch anyone pushes to, and only CI moves
+`main` (hadoku-fleet-manager-private `docs/planning/ppe-promotion-2026-11-01.md`).
+CI runs on `ppe`; `main` only ever receives a SHA that already went green there.
+
+```yaml
+# .github/workflows/ppe-promote.yml
+name: ppe promote
+on:
+  workflow_run:
+    workflows: [CI]          # the workflow that carries main's required checks
+    types: [completed]
+    branches: [ppe]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Promote the newest green now, ignoring the cadence
+        type: boolean
+        default: false
+jobs:
+  promote:
+    # A pull request's run from a branch that happens to be named ppe also
+    # completes CI; only a push to this repo's ppe is a promotion candidate.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    uses: WolffM/hadoku-actions/.github/workflows/promote.yml@v1
+    permissions:
+      contents: read
+      checks: read
+      statuses: read
+      issues: write
+    with:
+      runner: ${{ vars.CI_RUNNER }}
+      force: ${{ inputs.force == true }}
+      report-job-name: myrepo:ppe-promote
+    secrets:
+      deploy-key: ${{ secrets.PPE_PROMOTE_KEY }}
+      service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
+
+# .github/workflows/ppe-sync.yml
+name: ppe sync
+on:
+  push:
+    branches: [main]
+jobs:
+  sync:
+    uses: WolffM/hadoku-actions/.github/workflows/sync-main-to-ppe.yml@v1
+    permissions:
+      contents: read
+      issues: write
+    with:
+      runner: ${{ vars.CI_RUNNER }}
+      report-job-name: myrepo:ppe-sync
+    secrets:
+      deploy-key: ${{ secrets.PPE_PROMOTE_KEY }}
+      service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
+```
+
+**What the promoter decides**, on every run (`promote/decide.mjs`, pure and
+unit-tested):
+
+- **Green** means every *required* check of `main` passed on that commit. The
+  list is READ: `main`'s ruleset, else its classic branch protection. A repo
+  with neither has nothing that can be called green, and that is a failure,
+  not a pass.
+- **Promote** fast-forwards `main` to the newest green commit on `ppe`'s
+  first-parent line when `main` last moved 30+ minutes ago, or `ppe` has been
+  quiet for 10, or the run was dispatched with `force`. It is a plain push of an
+  existing SHA, so git refuses anything but a fast-forward. If `main` holds a
+  commit `ppe` lacks (a bot push not yet synced), no fast-forward is possible
+  and none is tried.
+- **Revert**: CI runs once per `ppe` push (the caller's CI must not let one
+  `ppe` push cancel another's run: give `ppe` a per-SHA concurrency group, as
+  hadoku-fleet-manager's `ci.yml` does), so the first red pushed tip above the
+  newest green, back to the next older tested commit, is exactly one push. Its
+  commits are reverted in ONE commit on `ppe` carrying `Reverts-Push: <sha>`,
+  and an issue names the push and every `Session:` trailer in it. A red push the
+  promoter already reverted is skipped. A red revert, a red push containing a
+  merge, or a revert that conflicts goes to a human (issue, red job) instead.
+- **Could not look** (any API read failed, the activity of a branch was
+  unreadable, more than 60 commits above the newest green) promotes nothing and
+  reverts nothing: the job fails with the reason.
+
+**Cost.** One small job per CI completion on `ppe` (no per-repo cron: across
+the fleet that would be hundreds of claw mints an hour). Every API read is the
+job's own `GITHUB_TOKEN`, a per-repo budget, never the fleet's shared token:
+about 6 calls a run plus 1-2 per commit walked. The one wake-up no event
+provides, `ppe` going quiet inside the 30-minute window, comes from
+fleet-manager's in-process ppe sweep.
+
+**Credentials.** `PPE_PROMOTE_KEY` is a per-repo write deploy key (the private
+half as a repo secret, the public half as the repo's deploy key, which is also
+the bypass actor of `main`'s ruleset). Pushes go over ssh with it because a push
+made with `GITHUB_TOKEN` triggers no workflow, and a promotion must trigger
+`main`'s publish and a revert must trigger CI. github.com's host key is pinned.
+
+## `next-version`
+
+```yaml
+- uses: WolffM/hadoku-actions/next-version@v1
+  id: version
+  env:
+    NODE_AUTH_TOKEN: ${{ env.HADOKU_NPM_READ_TOKEN }}   # read access is enough
+- if: steps.version.outputs.published != 'true'
+  run: npm publish --no-git-checks
+  env:
+    NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Needs `setup-node` with the package's `registry-url` and `scope` first. Reads
+every published version at once and writes the newest + 1 patch into the
+workspace's `package.json`; a committed version above the registry is kept, so
+a deliberate minor bump still works. A 404 (never published) starts from
+`package.json`; any other registry failure fails the step rather than guess.
+`published: 'true'` means the newest version's `gitHead` is this very commit: a
+re-run after a later step failed, so skip the publish and redo what followed.
+
 ## Versioning
 
 **`v1` is a release tag, moved deliberately. It is never a branch alias.**
@@ -507,3 +630,14 @@ shipped `.npmrc`, a non-`@wolffm` name). `publish-npmjs-stage` and
 `publish-npmjs-publish` then run the real handoff across two runners: a
 throwaway package is staged, and the publish half finds its artifact, asks npmjs
 whether the version exists and runs `npm publish --dry-run`. Nothing is published.
+
+**`ppe`** — `promote/decide.test.mjs` covers every branch of the decision:
+newest green past a pending tip, the cadence, an unsynced `main`, the red push's
+range, a red already reverted, a red revert, a merge in the range.
+`promote.test.mjs` and `sync.test.mjs` then run the real scripts against a bare
+`file://` remote and a stand-in API (`promote/fixture.mjs`) and assert what
+lands: the fast-forward, one revert undoing a whole push, and nothing moving
+when a read fails. `next-version.test.mjs` runs against a stand-in npm, and the
+job then runs all three composites through `uses:`, the two pushers proven to
+refuse without a deploy key. *Stated gap:* nothing pushes to GitHub over ssh;
+the first adopting repo covers it.
