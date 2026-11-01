@@ -7,10 +7,12 @@ name: Self-test
 # HOSTED ON PURPOSE. This repo is public and has no runner registration, but
 # neither is the reason — a public repo executing pull-request code must not
 # touch a persistent self-hosted runner, exactly as tenhands' pages.yml is
-# hosted. If this repo ever gains a second workflow it crosses autoInclude's
-# minWorkflows threshold, enters fleet coverage, and then needs an
-# `allowHosted` entry in hadoku_site's repo-policy-manifest.json carrying this
-# reason. Until then it is outside the audit.
+# hosted. The reusable promote.yml and sync-main-to-ppe.yml (2026-11-01) put
+# this repo over autoInclude's minWorkflows threshold, although neither ever
+# runs HERE (workflow_call only: they run in their callers, on the callers'
+# runners). So hadoku_site's fleet-runner-manifest needs an explicit entry for
+# it, and this job an `allowHosted` entry in repo-policy-manifest.json carrying
+# this reason.
 on:
   pull_request:
   push:
@@ -894,3 +896,70 @@ jobs:
         env:
           STAGED: ${{ steps.publish.outputs.staged }}
         run: '[ "$STAGED" = npmjs-themes ] || { echo "::error::staged=$STAGED"; exit 1; }'
+
+  # promote, sync-main-to-ppe and next-version. The decision is a pure module
+  # with unit tests; the promoter and the sync then run END TO END against a
+  # real bare remote (file://, partial clone allowed as GitHub allows it) and
+  # a stand-in GitHub API, asserting what they PUSH: the fast-forward, the
+  # revert of a whole red push, and that "could not look" moves nothing.
+  # next-version runs against a stand-in npm. Nothing here reaches GitHub or
+  # a registry.
+  ppe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: decision, promote, sync and next-version cases
+        run: >-
+          node --test
+          promote/decide.test.mjs
+          promote/promote.test.mjs
+          promote/sync.test.mjs
+          next-version/next-version.test.mjs
+
+      # The composite wrappers, through `uses:`, the way a caller reaches them:
+      # each must refuse to act without its deploy key rather than run on
+      # whatever credentials the runner happens to hold.
+      - name: promote without a deploy key is refused
+        id: nokey
+        continue-on-error: true
+        uses: ./promote
+        with:
+          deploy-key: ''
+          github-token: ${{ github.token }}
+
+      - name: sync without a deploy key is refused
+        id: nosynckey
+        continue-on-error: true
+        uses: ./sync-main-to-ppe
+        with:
+          deploy-key: ''
+          github-token: ${{ github.token }}
+
+      - name: assert both refusals fired
+        run: |
+          for o in "${{ steps.nokey.outcome }}" "${{ steps.nosynckey.outcome }}"; do
+            if [ "$o" != "failure" ]; then
+              echo "::error::a ppe action ran without its deploy key"
+              exit 1
+            fi
+          done
+          echo "both refused without a deploy key, as they must"
+
+      - name: next-version on a real package.json
+        id: nv
+        uses: ./next-version
+        env:
+          NEXT_VERSION_NPM: ${{ github.workspace }}/.github/selftest/fake-npm.sh
+        with:
+          package-dir: .github/selftest/next-version-fixture
+
+      - name: it bumped the workspace copy one patch above the registry
+        env:
+          V: ${{ steps.nv.outputs.version }}
+        run: |
+          [ "$V" = 0.4.8 ] || { echo "::error::version=$V"; exit 1; }
+          grep -q '"version": "0.4.8"' .github/selftest/next-version-fixture/package.json
