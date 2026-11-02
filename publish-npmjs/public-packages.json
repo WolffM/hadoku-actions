@@ -3,6 +3,7 @@
   "packages": [
     "catalogue",
     "cdn-client",
+    "dev-vault",
     "game-stats-ui",
     "jobplatform",
     "jobplatform-worker",
