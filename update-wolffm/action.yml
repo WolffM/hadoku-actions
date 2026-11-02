@@ -80,13 +80,37 @@ runs:
       env:
         NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
         RECURSIVE: ${{ inputs.recursive }}
+        # Seconds to wait before each retry of a not-yet-fetchable npmjs tarball.
+        FETCH_RETRY_DELAYS: '20 40 60 90'
       run: |
         set -euo pipefail
-        # When "latest" was read: the assert below forgives only releases
-        # published after this.
-        echo "resolved-at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
         r=''; [ "$RECURSIVE" = 'true' ] && r='-r'
-        pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" update $r --latest "@wolffm/*"
+        # npmjs lists a version in its metadata a little before the tarball can
+        # be fetched. A consumer on the @hadoku/* npmjs aliases that updates in
+        # that window resolves the new version and 404s on its tarball
+        # (cardtable, rooms-protocol 0.45.32, 2026-11-02: the job fetched at
+        # 22:58:35, the mirror landed at 22:59:00). So a 404 on an npmjs tarball
+        # is retried after a pause; any other failure fails at once, as before.
+        attempt=1
+        for delay in $FETCH_RETRY_DELAYS ''; do
+          started=$(date -u +%s)
+          log=$(mktemp)
+          if pnpm --config.store-dir="$RUNNER_TOOL_CACHE/pnpm-store" update $r --latest "@wolffm/*" 2>&1 | tee "$log"; then
+            rm -f "$log"
+            # When "latest" was read: the assert below forgives only releases
+            # published after this.
+            echo "resolved-at=$started" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$delay" ] || ! grep -qE 'ERR_PNPM_FETCH_404.*https://registry\.npmjs\.org/[^ ]+\.tgz' "$log"; then
+            rm -f "$log"
+            exit 1
+          fi
+          rm -f "$log"
+          echo "::notice::npmjs lists a version whose tarball is not fetchable yet (attempt $attempt); retrying in ${delay}s"
+          sleep "$delay"
+          attempt=$((attempt + 1))
+        done
 
     # `pnpm update --latest` rewrites an in-repo package's `workspace:*` range
     # to a registry version, and the next frozen install then resolves the
