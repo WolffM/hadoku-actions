@@ -428,6 +428,9 @@ a deliberate minor bump still works. A 404 (never published) starts from
 `package.json`; any other registry failure fails the step rather than guess.
 `published: 'true'` means the newest version's `gitHead` is this very commit: a
 re-run after a later step failed, so skip the publish and redo what followed.
+The action writes that `gitHead` into package.json itself, beside the version: npm
+records one at publish, but `pnpm publish` does not, so without it a pnpm repo's
+re-run would never be recognised and would ship the same build as a fresh patch.
 
 ## Versioning
 
