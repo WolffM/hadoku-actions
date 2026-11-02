@@ -64,14 +64,17 @@ check '.devDependencies' 'undefined'
 check '.publishConfig' 'undefined'
 check '.scripts' '{"postinstall":"node setup.js"}'
 
-tarball not-public '{"name":"@wolffm/dev-vault","version":"1.0.0"}'
-run not-public 1 '@wolffm/dev-vault is not in public-packages.json'
+# A name no real package will ever take, so making a real package public can
+# never quietly turn these into passes (dev-vault went public on 2026-11-02
+# and broke all three; 8f222d4 was the same mistake with another name).
+tarball not-public '{"name":"@wolffm/selftest-never-public","version":"1.0.0"}'
+run not-public 1 '@wolffm/selftest-never-public is not in public-packages.json'
 
-tarball private-dep '{"name":"@wolffm/themes","version":"1.0.0","dependencies":{"@wolffm/dev-vault":"1.0.0"}}'
-run private-dep 1 'dependencies: @wolffm/dev-vault is not public'
+tarball private-dep '{"name":"@wolffm/themes","version":"1.0.0","dependencies":{"@wolffm/selftest-never-public":"1.0.0"}}'
+run private-dep 1 'dependencies: @wolffm/selftest-never-public is not public'
 
-tarball private-peer '{"name":"@wolffm/themes","version":"1.0.0","peerDependencies":{"@wolffm/dev-vault":"*"}}'
-run private-peer 1 'peerDependencies: @wolffm/dev-vault is not public'
+tarball private-peer '{"name":"@wolffm/themes","version":"1.0.0","peerDependencies":{"@wolffm/selftest-never-public":"*"}}'
+run private-peer 1 'peerDependencies: @wolffm/selftest-never-public is not public'
 
 tarball unresolved '{"name":"@wolffm/themes","version":"1.0.0","dependencies":{"@wolffm/prefs-client":"workspace:*"}}'
 run unresolved 1 'has spec "workspace:*"'
