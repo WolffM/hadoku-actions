@@ -163,6 +163,12 @@ jobs:
       - name: latest-version assert cases, against the extracted shell
         run: bash .github/selftest/update-wolffm-assert-cases.sh
 
+      # The update step EXTRACTED from action.yml, against a stand-in pnpm: a 404
+      # on an npmjs tarball (listed before it is fetchable) is retried, any other
+      # failure and a 404 that outlasts the retries still fail.
+      - name: npmjs tarball 404 retry cases, against the extracted shell
+        run: bash .github/selftest/update-wolffm-fetch-retry-cases.sh
+
   report-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 5

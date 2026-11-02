@@ -533,6 +533,15 @@ shipped `.npmrc`, a non-`@wolffm` name). `publish-npmjs-stage` and
 throwaway package is staged, and the publish half finds its artifact, asks npmjs
 whether the version exists and runs `npm publish --dry-run`. Nothing is published.
 
+**`update-wolffm`** — three harnesses, each running a step body extracted from
+`action.yml` rather than a copy: commit-and-promote (a re-run after a landed
+bump, a real conflict), the latest-version assert (a release published mid-run
+is forgiven, drift is not), and the update itself against a stand-in `pnpm`. A
+404 on an npmjs tarball is retried (npmjs lists a version shortly before its
+tarball can be fetched, so an `@hadoku/*` alias consumer updating in that window
+404s); any other failure, a GitHub Packages 404, and a 404 that outlasts the
+retries all fail.
+
 **`next-version`** — `next-version/next-version.test.mjs` covers the arithmetic
 (numeric, never lexical; a committed version above the registry kept;
 prereleases and junk never seeding it) and, against a stand-in npm, the
