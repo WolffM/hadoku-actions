@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { main, nextVersion } from './next-version.mjs';
+import { main, nextVersion, writeGitHead } from './next-version.mjs';
 
 test('one patch above the registry newest, whatever package.json says', () => {
 	assert.deepEqual(nextVersion('0.34.2', ['0.34.1', '0.34.302', '0.34.99']), {
@@ -44,10 +44,13 @@ function fixture(npmBody, version = '0.34.2') {
 	return { dir, env, out: () => readFileSync(out, 'utf8'), pkg: () => readFileSync(join(dir, 'package.json'), 'utf8') };
 }
 
-test('writes the version into package.json and nothing else', () => {
+test('writes the version and the publishing commit into package.json, and nothing else', () => {
 	const f = fixture(`case "$3" in versions) echo '["0.34.300","0.34.301"]';; *) echo deadbeef;; esac`);
 	assert.equal(main(f.env), 0);
-	assert.equal(f.pkg(), '{\n  "name": "@wolffm/x",\n  "version": "0.34.302",\n  "private": false\n}\n');
+	assert.equal(
+		f.pkg(),
+		'{\n  "name": "@wolffm/x",\n  "version": "0.34.302",\n  "gitHead": "c0ffee",\n  "private": false\n}\n'
+	);
 	assert.match(f.out(), /^version=0\.34\.302$/m);
 	assert.match(f.out(), /^published=false$/m);
 });
@@ -74,4 +77,26 @@ test('a 404 is "never published"; any other registry failure refuses to guess', 
 	assert.throws(() => main(down.env), /E401.*refusing to guess/);
 	assert.equal(down.out(), '');
 	assert.match(down.pkg(), /"version": "0\.34\.2"/, 'package.json untouched');
+});
+
+test('pnpm publishes no gitHead of its own, so the next run of the same commit still reads as a re-run', () => {
+	const f = fixture(`case "$3" in versions) echo '["0.34.300"]';; *) echo '';; esac`);
+	main(f.env);
+	assert.equal(JSON.parse(f.pkg()).gitHead, 'c0ffee');
+});
+
+test('a gitHead already in package.json is replaced, never duplicated', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'nv-'));
+	const file = join(dir, 'package.json');
+	writeFileSync(file, '{\n  "name": "@wolffm/x",\n  "version": "1.0.0",\n  "gitHead": "old"\n}\n');
+	writeGitHead(file, 'new');
+	assert.equal(readFileSync(file, 'utf8'), '{\n  "name": "@wolffm/x",\n  "version": "1.0.0",\n  "gitHead": "new"\n}\n');
+});
+
+test('version as the last field still yields valid JSON', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'nv-'));
+	const file = join(dir, 'package.json');
+	writeFileSync(file, '{\n  "name": "@wolffm/x",\n  "version": "1.0.0"\n}\n');
+	writeGitHead(file, 'abc');
+	assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { name: '@wolffm/x', version: '1.0.0', gitHead: 'abc' });
 });

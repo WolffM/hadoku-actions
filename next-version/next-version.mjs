@@ -95,6 +95,23 @@ export function writeVersion(file, version) {
 	writeFileSync(file, next);
 }
 
+/**
+ * Record the publishing commit as `gitHead` beside the version. npm sets it at
+ * publish; `pnpm publish` does not, so without this a re-run of a pnpm repo's
+ * publish never reads as one and ships the same build as a fresh patch.
+ */
+export function writeGitHead(file, sha) {
+	const src = readFileSync(file, 'utf8');
+	const next = /"gitHead"\s*:/.test(src)
+		? src.replace(/("gitHead"\s*:\s*")[^"]*(")/, (_, a, b) => a + sha + b)
+		: src.replace(
+				/^(\s*)("version"\s*:\s*"[^"]*")(,?)$/m,
+				(_, indent, field, comma) => `${indent}${field},\n${indent}"gitHead": "${sha}"${comma}`
+			);
+	if (next === src) throw new Error(`could not record gitHead in ${file}`);
+	writeFileSync(file, next);
+}
+
 export function main(env = process.env) {
 	const dir = env.NEXT_VERSION_DIR || '.';
 	const npm = env.NEXT_VERSION_NPM || 'npm';
@@ -117,6 +134,7 @@ export function main(env = process.env) {
 		return 0;
 	}
 	writeVersion(file, version);
+	if (sha) writeGitHead(file, sha);
 	out('version', version);
 	out('published', 'false');
 	process.stdout.write(

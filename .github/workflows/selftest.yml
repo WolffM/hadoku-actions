@@ -923,3 +923,4 @@ jobs:
         run: |
           [ "$V" = 0.4.8 ] || { echo "::error::version=$V"; exit 1; }
           grep -q '"version": "0.4.8"' .github/selftest/next-version-fixture/package.json
+          grep -q "\"gitHead\": \"$GITHUB_SHA\"" .github/selftest/next-version-fixture/package.json
