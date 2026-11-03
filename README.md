@@ -449,10 +449,25 @@ This is the cost of sharing: a bad push breaks every caller at once, where a
 vendored copy broke one. So:
 
 1. Land the change on `main`. The self-test runs.
-2. Confirm green, then move the tag:
+2. Release it through hadoku_site's gate, never by hand:
    ```sh
-   git tag -f v1 && git push -f origin v1
+   gh workflow run actions-release.yml --repo WolffM/hadoku_site -f sha=<full sha>
    ```
+   It refuses a commit that is not on `main` or whose self-test is not green,
+   then runs real consumers' publish path (hadoku-aggregator, hadoku-contact-ui,
+   hadoku-craft: their own checkout, lockfile, install, next-version and
+   `pnpm run build`) against the CANDIDATE actions with every pnpm store cold,
+   and moves `v1` only if all of them pass. `-f move_tag=false` runs the
+   canaries alone.
+
+   Why: the self-test proves each action against fixtures on a hosted runner.
+   It could not see #5 — setup-pnpm left the store unpinned, `pnpm run build`
+   re-linked against the default store under setup-node's placeholder token,
+   and every fleet publish 401'd on the newest `@wolffm` version — because the
+   claws' warm store held every tarball. Against the pre-fix commit (212db1a)
+   the gate is red on all three consumers with that exact 401; against the fix
+   (c3ae82d) it is green. It lives in hadoku_site because this repo is public
+   with no secrets, and the canaries need the registry token.
 
 Callers that cannot afford a fleet-wide break should pin a commit SHA instead of
 `@v1`.
