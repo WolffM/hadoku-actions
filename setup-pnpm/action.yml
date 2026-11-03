@@ -52,6 +52,25 @@ description: >-
 # a repo whose .npmrc is not gitignored then hands its credential to any
 # commit-back workflow it later gains.
 
+# ONE STORE FOR THE WHOLE JOB
+# ----------------------------
+# Every caller installs with `--config.store-dir=${{ runner.tool_cache }}/pnpm-store`,
+# but on the install step only. pnpm 11 checks deps before every `pnpm run`, and
+# next-version's package.json edit (version + gitHead) makes them read as stale,
+# so `pnpm run build` re-installs. With no store-dir it uses the DEFAULT store,
+# sees node_modules was linked from another, prints `Recreating .../node_modules`
+# and re-links all of it -- under the build step's env, whose NODE_AUTH_TOKEN is
+# setup-node's placeholder `XXXXX-XXXXX-XXXXX-XXXXX`. Anything missing from the
+# default store is fetched with that and 401s: always the newest @wolffm version,
+# minutes after it was published (hadoku-actions#5; aggregator, contact-ui, task,
+# craft, resume-bot, tenhands, every day since at least 2026-11-02). Green runs
+# took the same path and passed only because the default store had every tarball.
+#
+# So this action exports `pnpm_config_store_dir` (pnpm 11 reads pnpm_config_*,
+# NOT npm_config_*) to every later step, and the store pnpm checks against is
+# the one the install used. A caller's explicit --config.store-dir still wins
+# and names the same path.
+
 inputs:
   node-version:
     description: Node major to install.
@@ -91,6 +110,13 @@ inputs:
     description: Vault broker base URL. Override only to test.
     required: false
     default: https://hadoku.me/mgmt
+  store-dir:
+    description: >-
+      The pnpm store every later step in the job uses, exported as
+      pnpm_config_store_dir. Defaults to <runner tool cache>/pnpm-store, the
+      path the fleet's install steps already pass as --config.store-dir.
+    required: false
+    default: ''
   assert-token:
     description: >-
       Set to 'false' ONLY for a job that installs nothing from the private
@@ -100,6 +126,9 @@ inputs:
     default: 'true'
 
 outputs:
+  store-dir:
+    description: The pnpm store exported to the rest of the job.
+    value: ${{ steps.store.outputs.dir }}
   npm-token:
     description: >-
       The registry token to put on the install step as NODE_AUTH_TOKEN — from
@@ -121,6 +150,17 @@ runs:
         corepack enable
         corepack prepare "pnpm@${{ inputs.pnpm-version }}" --activate
         echo "pnpm $(pnpm --version) on node $(node --version)"
+
+    - name: Pin the pnpm store for the whole job
+      id: store
+      shell: bash
+      env:
+        STORE_DIR: ${{ inputs.store-dir }}
+      run: |
+        dir="${STORE_DIR:-$RUNNER_TOOL_CACHE/pnpm-store}"
+        echo "pnpm_config_store_dir=$dir" >> "$GITHUB_ENV"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "pnpm store for every later step: $dir"
 
     - name: Resolve the registry credential
       id: credential
