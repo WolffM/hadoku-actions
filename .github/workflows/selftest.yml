@@ -569,6 +569,18 @@ jobs:
           case "$n" in v22.*) ;; *) echo "::error::node is $n, expected v22.x"; exit 1 ;; esac
           echo "pnpm $v on node $n"
 
+      # ONE STORE FOR THE JOB (#5). Read back through pnpm, not just the env
+      # var: pnpm 11 ignores npm_config_*, so an export pnpm does not honour
+      # would leave `pnpm run` re-linking against the default store again.
+      - name: every later step's pnpm uses the pinned store
+        run: |
+          want="$RUNNER_TOOL_CACHE/pnpm-store"
+          [ "${{ steps.defaults.outputs.store-dir }}" = "$want" ] \
+            || { echo "::error::store-dir output is '${{ steps.defaults.outputs.store-dir }}', expected $want"; exit 1; }
+          got=$(pnpm store path)
+          case "$got" in "$want"/*|"$want") ;; *) echo "::error::pnpm store path is $got, expected under $want"; exit 1 ;; esac
+          echo "pnpm store path: $got"
+
       # THE NPMRC MUST BE TOKENLESS. setup-node points NPM_CONFIG_USERCONFIG at
       # the file it wrote; it has to carry the literal ${NODE_AUTH_TOKEN} for
       # pnpm to expand at install time. A hand-written npmrc with a real token

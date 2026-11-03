@@ -209,6 +209,15 @@ all default to the fleet's values. Keep `pnpm-version` equal to the repo's
 `package.json` `packageManager` — corepack is pinned by that field locally, and
 a workflow disagreeing with it is drift nothing reports.
 
+**The store is pinned for the whole job.** The action exports
+`pnpm_config_store_dir` (default `<tool cache>/pnpm-store`, input `store-dir`)
+to every later step. pnpm 11 re-checks deps before each `pnpm run`, and a
+package.json edit (next-version's version + gitHead) makes them stale; with no
+store pinned, `pnpm run build` re-linked everything against the DEFAULT store
+under the build step's placeholder token and 401'd on whatever that store
+lacked — the newest `@wolffm` version, every publish day (#5). pnpm 11 reads
+`pnpm_config_*`, not `npm_config_*`.
+
 **The token goes on the install step, not on this action.** `setup-node` writes
 a TOKENLESS npmrc whose `${NODE_AUTH_TOKEN}` pnpm expands at install time. This
 action takes `npm-token` only to assert it is non-empty — an unset secret reads
