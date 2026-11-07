@@ -13,7 +13,7 @@ description: >-
 #       id-token: write   # the OIDC token npm exchanges for a publish
 #       actions: read     # to list what this run staged
 #     steps:
-#       - uses: WolffM/hadoku-actions/publish-npmjs/publish@<ref>
+#       - uses: WolffM/hadoku-actions/publish-npmjs/publish@v1
 #
 # This job cannot report its own outcome: Cloudflare challenges every request
 # from a GitHub-hosted runner to hadoku.me. A self-hosted job that `needs` it
