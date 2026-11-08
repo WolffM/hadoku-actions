@@ -27,6 +27,7 @@ PY
 mkdir "$work/bin"
 cat > "$work/bin/npm" <<'SH'
 #!/usr/bin/env bash
+[ -n "${ARGS:-}" ] && echo "$*" >> "$ARGS"
 cat "$FIXTURE" 2>/dev/null || exit 1
 SH
 chmod +x "$work/bin/npm"
@@ -45,7 +46,7 @@ fails=0
 case_() {
   local name=$1 want_rc=$2 at=$3 fixture=$4 rc=0
   if [ -n "$fixture" ]; then printf '%s' "$fixture" > "$work/fixture"; else rm -f "$work/fixture"; fi
-  (cd "$work/repo" && env PATH="$work/bin:$PATH" FIXTURE="$work/fixture" RESOLVED_AT="$at" \
+  (cd "$work/repo" && env PATH="$work/bin:$PATH" FIXTURE="$work/fixture" RESOLVED_AT="$at" ARGS="${ARGS:-}" \
     bash -e -o pipefail "$work/body.sh") > "$work/log" 2>&1 || rc=$?
   if [ "$rc" != "$want_rc" ]; then
     echo "FAIL $name: exit=$rc (wanted $want_rc)"
@@ -78,6 +79,25 @@ case_ 'no publish times from the registry'             1 "$resolved" \
 case_ 'no resolved-at: nothing is forgiven'            1 '' \
   "{\"version\":\"5.12.20\",\"time\":{\"5.12.19\":\"$prev\",\"5.12.20\":\"$mid\"}}"
 case_ 'registry unreachable'                           1 "$resolved" ''
+
+# An @hadoku/* alias resolves from npmjs, so it is judged by what npmjs has:
+# GitHub Packages a release ahead must not make it stale (cardtable,
+# 2026-11-05: "declares npm:@hadoku/themes@5.13.29, latest is 5.13.30").
+cat > "$work/repo/package.json" <<'JSON'
+{ "name": "selftest", "devDependencies": { "@wolffm/themes": "npm:@hadoku/themes@5.13.29" } }
+JSON
+rm -f "$work/args"
+ARGS="$work/args" case_ 'an @hadoku alias at npmjs latest'  0 "$resolved" \
+  "{\"version\":\"5.13.29\",\"time\":{\"5.13.28\":\"$old\",\"5.13.29\":\"$prev\"}}"
+if ! grep -q '^view @hadoku/themes version time --json --registry=https://registry.npmjs.org$' "$work/args"; then
+  echo "FAIL an @hadoku alias is read from npmjs, by its @hadoku name — npm was asked:"
+  sed 's/^/    /' "$work/args"
+  fails=$((fails + 1))
+else
+  echo "ok   an @hadoku alias is read from npmjs, by its @hadoku name"
+fi
+ARGS='' case_ 'an @hadoku alias behind npmjs latest'  1 "$resolved" \
+  "{\"version\":\"5.13.30\",\"time\":{\"5.13.29\":\"$old\",\"5.13.30\":\"$prev\"}}"
 
 if [ "$fails" -gt 0 ]; then
   echo "::error::$fails update-wolffm assert case(s) failed"

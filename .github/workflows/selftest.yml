@@ -164,10 +164,17 @@ jobs:
         run: bash .github/selftest/update-wolffm-assert-cases.sh
 
       # The update step EXTRACTED from action.yml, against a stand-in pnpm: a 404
-      # on an npmjs tarball (listed before it is fetchable) is retried, any other
-      # failure and a 404 that outlasts the retries still fail.
+      # on an npmjs tarball (listed before it is fetchable) and a version npmjs
+      # does not list yet are retried; any other failure, and a race that
+      # outlasts the retries, still fail.
       - name: npmjs tarball 404 retry cases, against the extracted shell
         run: bash .github/selftest/update-wolffm-fetch-retry-cases.sh
+
+      # The mirror wait EXTRACTED from action.yml, against a stand-in npm: an
+      # @hadoku/* alias waits until npmjs serves GitHub Packages' latest, a
+      # mirror that never lands fails inside the budget, nothing else waits.
+      - name: npmjs mirror wait cases, against the extracted shell
+        run: bash .github/selftest/update-wolffm-mirror-cases.sh
 
   report-e2e:
     runs-on: ubuntu-latest

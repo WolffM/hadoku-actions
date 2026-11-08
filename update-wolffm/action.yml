@@ -73,6 +73,55 @@ runs:
         npm-token: ${{ inputs.npm-token }}
         vault-key: ${{ inputs.service-key }}
 
+    # A consumer on the @hadoku/* npmjs aliases resolves from npmjs, which lands
+    # 2-4 min after GitHub Packages (publish-npmjs runs after the GitHub
+    # publish, and the packages_updated dispatch can beat it). A run that starts
+    # in that window resolves the OLD version, finds nothing to bump, passes,
+    # and the consumer stays a release behind until the next publish. So wait,
+    # within a budget, until npmjs serves what GitHub Packages calls latest.
+    - id: mirror
+      name: Wait for npmjs to serve the latest @hadoku/* aliases
+      shell: bash
+      env:
+        NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
+        MIRROR_WAIT_S: '300'
+        MIRROR_POLL_S: '20'
+      run: |
+        node -e '
+          const {execSync}=require("child_process"), fs=require("fs");
+          const view=(spec,registry)=>{
+            try { return execSync(`npm view ${spec} version --registry=${registry}`,{stdio:["ignore","pipe","ignore"]}).toString().trim(); }
+            catch { return null; }
+          };
+          const aliases=new Map();
+          for (const m of execSync("git ls-files \"*package.json\"").toString().trim().split("\n")) {
+            if (!m || m.includes("node_modules")) continue;
+            let pkg; try { pkg=JSON.parse(fs.readFileSync(m,"utf8")); } catch { continue; }
+            for (const field of ["dependencies","devDependencies"]) {
+              for (const [name,range] of Object.entries(pkg[field]||{})) {
+                const alias=String(range).match(/^npm:(@hadoku\/[^@]+)@/);
+                if (name.startsWith("@wolffm/") && alias) aliases.set(name,alias[1]);
+              }
+            }
+          }
+          const budget=Number(process.env.MIRROR_WAIT_S), poll=Number(process.env.MIRROR_POLL_S);
+          const deadline=Date.now()+budget*1000;
+          for (const [name,alias] of aliases) {
+            const want=view(name,"https://npm.pkg.github.com");
+            // The assert step reports an unreadable registry; waiting here on a
+            // version nobody could read would only spend the budget.
+            if (!want) { console.log(`::notice::${name}: GitHub Packages unreadable, not waiting on its npmjs mirror`); continue; }
+            while (view(`${alias}@${want}`,"https://registry.npmjs.org")!==want) {
+              if (Date.now()>=deadline) {
+                console.log(`::error::npmjs still does not serve ${alias}@${want} after ${budget}s; GitHub Packages has it. Did its publish-npmjs run fail?`);
+                process.exit(1);
+              }
+              console.log(`::notice::waiting for npmjs to serve ${alias}@${want}`);
+              execSync(`sleep ${poll}`);
+            }
+          }
+        '
+
     - id: update
       name: Update @wolffm/* to latest (majors included)
       shell: bash
@@ -80,8 +129,8 @@ runs:
       env:
         NODE_AUTH_TOKEN: ${{ steps.pnpm.outputs.npm-token }}
         RECURSIVE: ${{ inputs.recursive }}
-        # Seconds to wait before each retry of a not-yet-fetchable npmjs tarball.
-        FETCH_RETRY_DELAYS: '20 40 60 90'
+        # Seconds to wait before each retry of an npmjs mirror race (~5 min).
+        FETCH_RETRY_DELAYS: '20 40 60 90 90'
       run: |
         set -euo pipefail
         r=''; [ "$RECURSIVE" = 'true' ] && r='-r'
@@ -90,7 +139,11 @@ runs:
         # that window resolves the new version and 404s on its tarball
         # (cardtable, rooms-protocol 0.45.32, 2026-11-02: the job fetched at
         # 22:58:35, the mirror landed at 22:59:00). So a 404 on an npmjs tarball
-        # is retried after a pause; any other failure fails at once, as before.
+        # is retried after a pause. So is a version npmjs does not list YET: the
+        # mirror republishes a repo's packages one at a time, so for a minute
+        # npmjs can serve @hadoku/rooms-server 0.45.34 before the
+        # @hadoku/rooms-protocol 0.45.34 it depends on (cardtable, 2026-11-03,
+        # ERR_PNPM_NO_MATCHING_VERSION twice). Any other failure fails at once.
         attempt=1
         for delay in $FETCH_RETRY_DELAYS ''; do
           started=$(date -u +%s)
@@ -102,12 +155,12 @@ runs:
             echo "resolved-at=$started" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ -z "$delay" ] || ! grep -qE 'ERR_PNPM_FETCH_404.*https://registry\.npmjs\.org/[^ ]+\.tgz' "$log"; then
+          if [ -z "$delay" ] || ! grep -qE 'ERR_PNPM_FETCH_404.*https://registry\.npmjs\.org/[^ ]+\.tgz|ERR_PNPM_NO_MATCHING_VERSION.*https://registry\.npmjs\.org/' "$log"; then
             rm -f "$log"
             exit 1
           fi
           rm -f "$log"
-          echo "::notice::npmjs lists a version whose tarball is not fetchable yet (attempt $attempt); retrying in ${delay}s"
+          echo "::notice::npmjs has not caught up with a publish yet (attempt $attempt); retrying in ${delay}s"
           sleep "$delay"
           attempt=$((attempt + 1))
         done
@@ -186,8 +239,14 @@ runs:
                   // ranges, and deduping by name alone checked whichever came first
                   // and silently skipped the stale one.
                   const key=name+"@"+m+"#"+field; if (seen.has(key)) continue; seen.add(key);
+                  // An @hadoku/* alias resolves from npmjs, which lags GitHub
+                  // Packages by minutes: judged against GitHub Packages it read as
+                  // stale while npmjs did not have the newer release yet
+                  // (cardtable, 2026-11-03 and 11-05). Read where it resolves.
+                  const alias=r.match(/^npm:(@hadoku\/[^@]+)@/);
+                  const [spec,registry]=alias ? [alias[1],"https://registry.npmjs.org"] : [name,"https://npm.pkg.github.com"];
                   let latest, times; try {
-                    const info=JSON.parse(execSync(`npm view ${name} version time --json --registry=https://npm.pkg.github.com`,{stdio:["ignore","pipe","ignore"]}).toString());
+                    const info=JSON.parse(execSync(`npm view ${spec} version time --json --registry=${registry}`,{stdio:["ignore","pipe","ignore"]}).toString());
                     latest=info.version; times=info.time||{};
                   } catch {
                     // NOT `continue`. An unreachable registry is indistinguishable

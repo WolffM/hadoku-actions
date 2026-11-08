@@ -5,8 +5,9 @@
 #
 # The stand-in fails its first N calls with a chosen error, then succeeds. A
 # 404 on an npmjs tarball (its metadata listed the version before the tarball
-# could be fetched) must be retried; any other failure must fail at once, and a
-# 404 that outlasts every retry must still fail.
+# could be fetched) must be retried, as must a version npmjs does not list yet
+# (the mirror republished a dependant before its dependency); any other failure
+# must fail at once, and a race that outlasts every retry must still fail.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -35,6 +36,9 @@ SH
 chmod +x "$work/bin/pnpm"
 
 NPMJS='https://registry.npmjs.org/@hadoku/rooms-protocol/-/rooms-protocol-0.45.32.tgz'
+# pnpm's real line: "No matching version found for @wolffm/rooms-protocol@npm:
+# @hadoku/rooms-protocol@0.45.34 while fetching it from https://registry.npmjs.org/"
+NPMJS_META='https://registry.npmjs.org/'
 GHP='https://npm.pkg.github.com/download/@wolffm/rooms-protocol/0.45.32/abc'
 fails=0
 
@@ -62,5 +66,7 @@ case_ 'an npmjs tarball 404 is retried until it lands'     0 3 2 ERR_PNPM_FETCH_
 case_ 'a 404 that outlasts every retry still fails'        1 5 9 ERR_PNPM_FETCH_404 "$NPMJS"
 case_ 'any other error fails at once'                      1 1 9 ERR_PNPM_FETCH_401 "$NPMJS"
 case_ 'a 404 from GitHub Packages is not the mirror race'  1 1 9 ERR_PNPM_FETCH_404 "$GHP"
+case_ 'a version npmjs does not list yet is retried'      0 3 2 ERR_PNPM_NO_MATCHING_VERSION "$NPMJS_META"
+case_ 'no such version on GitHub Packages fails at once'   1 1 9 ERR_PNPM_NO_MATCHING_VERSION 'https://npm.pkg.github.com/'
 
 [ "$fails" = 0 ] || { echo "$fails case(s) failed"; exit 1; }
