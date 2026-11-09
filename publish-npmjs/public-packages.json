@@ -10,6 +10,7 @@
     "logger",
     "prefs-client",
     "resume-bot",
+    "rooms-client",
     "rooms-protocol",
     "rooms-server",
     "service-kernel",
