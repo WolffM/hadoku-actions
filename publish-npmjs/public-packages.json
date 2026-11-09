@@ -12,6 +12,7 @@
     "resume-bot",
     "rooms-protocol",
     "rooms-server",
+    "service-kernel",
     "task-ui-components",
     "themes",
     "watchparty-ui",
