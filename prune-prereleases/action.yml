@@ -1,0 +1,47 @@
+name: Prune old prereleases
+description: >-
+  Delete this repo's oldest prereleases whose tag starts with a prefix, and
+  their tags, keeping the newest N. For a repo that publishes a prerelease per
+  main commit and would otherwise keep every build's assets for ever.
+
+# Only PRERELEASES whose tag starts with the prefix are ever candidates: a full
+# release is never touched, whatever its tag. Order is by creation time, newest
+# first, so the build a PPE environment is serving (the newest) is always kept.
+# The job needs `permissions: contents: write`.
+
+inputs:
+  prefix:
+    description: Tag prefix that marks a prunable prerelease.
+    required: false
+    default: ppe-
+  keep:
+    description: How many of the newest to keep. At least 1.
+    required: false
+    default: '10'
+  token:
+    description: A token that may delete this repo's releases and tags.
+    required: false
+    default: ${{ github.token }}
+  dry-run:
+    description: "'true' lists what would be deleted and deletes nothing."
+    required: false
+    default: 'false'
+
+outputs:
+  deleted:
+    description: How many prereleases were deleted (or would be, on a dry run).
+    value: ${{ steps.prune.outputs.deleted }}
+
+runs:
+  using: composite
+  steps:
+    - id: prune
+      shell: bash
+      env:
+        PRUNE_PREFIX: ${{ inputs.prefix }}
+        PRUNE_KEEP: ${{ inputs.keep }}
+        PRUNE_TOKEN: ${{ inputs.token }}
+        PRUNE_DRY_RUN: ${{ inputs.dry-run }}
+        PRUNE_REPO: ${{ github.repository }}
+        PRUNE_API: ${{ github.api_url }}
+      run: bash "$GITHUB_ACTION_PATH/prune.sh"

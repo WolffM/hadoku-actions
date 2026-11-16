@@ -1,0 +1,56 @@
+name: Wait until a deploy is live
+description: >-
+  Poll a URL until a field of its JSON answer equals the value this run
+  published, so a job that asked for a deploy goes green only once the deploy
+  is actually being served, and the steps after it test the new build.
+
+# A notify or dispatch succeeding means the request was ACCEPTED. The publish
+# or restart happens afterwards, in another repo's workflow, and a smoke test
+# started straight away runs against the previous build and passes. Poll the
+# thing the deploy itself changes instead: a version file or a health answer
+# that names the build.
+
+inputs:
+  url:
+    description: The URL to poll. Its answer must be JSON.
+    required: true
+  expect:
+    description: The value the field must reach, compared as a string.
+    required: true
+  jq:
+    description: jq filter selecting the field.
+    required: false
+    default: .version
+  service-key:
+    description: >-
+      Sent as X-User-Key when set: this repo's KEY_SERVICE_<REPO> secret, for a
+      URL behind the edge's tier gate.
+    required: false
+    default: ''
+  timeout-seconds:
+    description: Give up after this long.
+    required: false
+    default: '600'
+  interval-seconds:
+    description: Seconds between polls.
+    required: false
+    default: '10'
+
+outputs:
+  waited-seconds:
+    description: How long it took to go live.
+    value: ${{ steps.wait.outputs.waited-seconds }}
+
+runs:
+  using: composite
+  steps:
+    - id: wait
+      shell: bash
+      env:
+        WAIT_URL: ${{ inputs.url }}
+        WAIT_EXPECT: ${{ inputs.expect }}
+        WAIT_JQ: ${{ inputs.jq }}
+        WAIT_KEY: ${{ inputs.service-key }}
+        WAIT_TIMEOUT: ${{ inputs.timeout-seconds }}
+        WAIT_INTERVAL: ${{ inputs.interval-seconds }}
+      run: bash "$GITHUB_ACTION_PATH/wait.sh"

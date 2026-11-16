@@ -20,6 +20,8 @@ calling repo.
 | [`repo-action-cli`](repo-action-cli/action.yml) | Exports `$REPO_ACTION`, the path of `repo-action`'s script, for a step that must promote from inside its own retry loop. Exit 2 means the default branch moved. |
 | [`publish-npmjs`](publish-npmjs/action.yml) | Republishes an already-built `@wolffm/*` package to npmjs as `@hadoku/*`, in the same job as its GitHub Packages publish, behind a leak gate. Only the names in `public-packages.json`. |
 | [`next-version`](next-version/action.yml) | Sets `package.json`'s version, in the CI workspace only, to one patch above the newest on the registry. Nothing is committed back. |
+| [`wait-for-live`](wait-for-live/action.yml) | Polls a URL until a field of its JSON answer equals the value this run published, so a deploy job goes green only once the deploy is being served. |
+| [`prune-prereleases`](prune-prereleases/action.yml) | Deletes this repo's oldest prereleases under a tag prefix, and their tags, keeping the newest N. |
 
 ## Use
 
@@ -441,6 +443,54 @@ The action writes that `gitHead` into package.json itself, beside the version: n
 records one at publish, but `pnpm publish` does not, so without it a pnpm repo's
 re-run would never be recognised and would ship the same build as a fresh patch.
 
+## `wait-for-live` and `prune-prereleases`
+
+For a repo that ships a build per `main` commit to a pre-production
+environment and promotes by release: publish, ask for the deploy, then wait
+until the deployed thing itself says it is the new build.
+
+```yaml
+- name: Ask hadoku_site to publish this build
+  uses: WolffM/hadoku-actions/repo-action@v1
+  with:
+    verb: notify
+    body: '{"event_type":"game_bundle_updated","client_payload":{"env":"ppe","tag":"${{ steps.tag.outputs.tag }}"}}'
+    service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
+
+- name: Wait until it is being served
+  uses: WolffM/hadoku-actions/wait-for-live@v1
+  with:
+    url: https://hadoku.me/games/myrepo-ppe/version.json
+    expect: ${{ steps.tag.outputs.tag }}
+    service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
+
+# ... smoke tests, now against the new build ...
+
+- name: Keep the last ten PPE builds
+  uses: WolffM/hadoku-actions/prune-prereleases@v1   # job needs contents: write
+```
+
+**Why wait at all.** A notify that succeeds means the request was accepted; the
+publish or restart happens afterwards in another repo's workflow. A smoke test
+started straight away runs against the previous build and passes.
+
+`wait-for-live` compares `jq` (default `.version`) of the answer with `expect`,
+as strings. Everything else keeps it polling until `timeout-seconds` (default
+600): the old value, a 401 or 404, a 5xx and the edge's HTML page are all what
+a deploy in progress looks like from outside. When it gives up it says what it
+last saw (`last: HTTP 200, .version = ppe-11`, `last: HTTP 401`), which is the
+difference between a deploy that never started, a wrong key and a wrong field.
+It refuses an empty `expect` before any request, because an unset step output
+reads as `''`. `service-key` is sent as `X-User-Key` for a route behind the
+edge's tier gate; leave it out for a public one.
+
+`prune-prereleases` only ever considers PRERELEASES whose tag starts with
+`prefix` (default `ppe-`): a full release is never a candidate, whatever its
+tag. It orders them by creation time and keeps the newest `keep` (default 10,
+at least 1, so the build being served always stays), then deletes each of the
+rest and its tag. It reads every page of the listing and deletes nothing if any
+page could not be read. `dry-run: 'true'` lists what would go.
+
 ## Versioning
 
 **`v1` is a release tag, moved deliberately. It is never a branch alias.**
@@ -573,3 +623,10 @@ prereleases and junk never seeding it) and, against a stand-in npm, the
 recognised by `gitHead`, and a 404 read as "never published" while any other
 registry failure refuses to guess. The job then runs the composite through
 `uses:` on a fixture package.
+
+**`wait-for-live`** and **`prune-prereleases`** — each real script against a
+stand-in `curl`: the first for what ends a wait and what does not (the old
+value, the edge page, a 401), the give-up message and the empty-`expect`
+refusal; the second for the keep order, paging past 100, the release and prefix
+it must never touch, and the refusals (empty prefix, `keep: 0`, an unreadable
+listing).

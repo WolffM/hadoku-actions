@@ -145,6 +145,58 @@ jobs:
       - name: retry outlasts a mgmt-api restart, and never retries a refusal
         run: bash .github/selftest/repo-action-cases.sh
 
+  # wait-for-live and prune-prereleases, each against the REAL script with a
+  # stand-in curl: the live ones poll a deployed route and delete real releases,
+  # so their callers cover that path.
+  wait-for-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: poll, give-up and refusal cases, against the extracted shell
+        run: bash .github/selftest/wait-for-live-cases.sh
+
+      - name: an empty expectation is refused through the action too
+        id: empty
+        continue-on-error: true
+        uses: ./wait-for-live
+        with:
+          url: https://example.invalid/version.json
+          expect: ''
+
+      - name: assert the refusal fired
+        run: |
+          if [ "${{ steps.empty.outcome }}" != "failure" ]; then
+            echo "::error::wait-for-live waited for an empty value"
+            exit 1
+          fi
+
+  prune-prereleases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: keep, paging and refusal cases, against the extracted shell
+        run: bash .github/selftest/prune-prereleases-cases.sh
+
+      # Through `uses:`, read-only, against this repo's own releases: a dry run
+      # with the job's token proves the inputs and the real API shape line up.
+      - name: a dry run against this repo deletes nothing
+        id: dry
+        uses: ./prune-prereleases
+        with:
+          prefix: selftest-never-a-real-prefix-
+          dry-run: 'true'
+
+      - name: assert it found nothing to delete
+        env:
+          DELETED: ${{ steps.dry.outputs.deleted }}
+        run: '[ "$DELETED" = 0 ] || { echo "::error::deleted=$DELETED"; exit 1; }'
+
   update-wolffm:
     runs-on: ubuntu-latest
     timeout-minutes: 5
