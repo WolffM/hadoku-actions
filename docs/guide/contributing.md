@@ -4,6 +4,23 @@ This is a map of the repo and its checks. [`README.md`](../../README.md) is
 the longer reference — every action has its own section there with the
 incident that shaped it; read it before changing one.
 
+## The twelve actions
+
+| Action | What it does |
+| --- | --- |
+| [`report-job`](../../report-job/action.yml) | Posts a job's outcome to the execution log. |
+| [`report-e2e`](../../report-e2e/action.yml) | Parses a Playwright, vitest or pytest report into per-test rows and posts them to the nightly e2e store. |
+| [`setup-pnpm`](../../setup-pnpm/action.yml) | Installs Node and the pinned pnpm, and asserts a registry credential is present. |
+| [`vault-fetch`](../../vault-fetch/action.yml) | Reads any vault secret at job time, for a caller that isn't `setup-pnpm`. |
+| [`setup-python-venv`](../../setup-python-venv/action.yml) | Sets up Python, then builds an isolated throwaway venv. |
+| [`repo-action`](../../repo-action/action.yml) | Fast-forwards a bot branch onto the default branch, or sends a release notification. |
+| [`repo-action-cli`](../../repo-action-cli/action.yml) | Exposes `repo-action`'s own script as `$REPO_ACTION`, for a caller that must retry it from inside a loop. |
+| [`update-wolffm`](../../update-wolffm/action.yml) | Bumps every `@wolffm/*` dependency to latest and promotes the result through `repo-action`. |
+| [`publish-npmjs`](../../publish-npmjs/action.yml) | Mirrors an already-built `@wolffm/*` package to npmjs as `@hadoku/*`: this half packs and leak-checks it, and [`publish-npmjs/publish`](../../publish-npmjs/publish/action.yml) is the second, GitHub-hosted half that runs the trusted-publishing handoff. |
+| [`next-version`](../../next-version/action.yml) | Computes one patch above the newest published version. |
+| [`wait-for-live`](../../wait-for-live/action.yml) | Polls a URL until it reports a given version. |
+| [`prune-prereleases`](../../prune-prereleases/action.yml) | Deletes a repo's oldest prereleases past a keep count. |
+
 ## Layout
 
 ```
@@ -24,6 +41,19 @@ next-version/next-version.mjs   the version arithmetic, with its own test file
                               is extracted and tested directly
 ```
 
+One action is used as a plain step (`uses:`); the rest that depend on each
+other call directly into the other action's own script instead:
+
+```mermaid
+flowchart LR
+    UpdateWolffm["update-wolffm"] -->|uses:| SetupPnpm["setup-pnpm"]
+    UpdateWolffm -->|promote| RepoActionScript["repo-action/call.sh"]
+    RepoAction["repo-action"] --> RepoActionScript
+    RepoActionCli["repo-action-cli"] -->|$REPO_ACTION| RepoActionScript
+    SetupPnpm -->|vault-key| VaultFetchScript["vault-fetch/fetch.sh"]
+    VaultFetch["vault-fetch"] --> VaultFetchScript
+```
+
 There is no root `package.json`. Every action is a composite action with a
 plain `run:` shell or a `node`/`node -e` one-liner — deliberately no
 dependency to install, since nothing here can assume a package manager ran
@@ -34,10 +64,10 @@ first.
 Several of the `*-cases.sh` scripts under `.github/selftest/` run outside a
 runner — e.g. `bash .github/selftest/report-job-cases.sh` extracts
 `report-job`'s own shell from `action.yml` and runs it against a stand-in
-`curl` that records what it would have sent, so the guards (an unset key
-warns, a colon-less `job-name` is refused, a `cancelled` outcome at or past
-`timeout-minutes` is reported as `failed`) can be asserted without a real
-runner or a real key. `next-version` additionally has its own unit test,
+`curl` that records what it would have sent. That lets the guards — an
+unset key warns, a colon-less `job-name` is refused, a `cancelled` outcome
+at or past `timeout-minutes` is reported as `failed` — be asserted without
+a real runner or a real key. `next-version` additionally has its own unit test,
 `node --test next-version/next-version.test.mjs`, covering the version
 arithmetic directly.
 
@@ -53,13 +83,13 @@ branch and letting the workflow run; it fires on `pull_request`, on `push` to
 job per action, run on a GitHub-hosted runner (never self-hosted — a public
 repo running pull-request code must not touch a persistent, shared runner).
 Each job proves its guards by *firing* them and asserting the step actually
-failed, rather than trusting that a guard exists — the review standard stated
-throughout the repo is "a guard nothing fires reads as coverage." A few
+failed, rather than trusting that a guard exists — the review standard
+stated throughout the repo: a guard nothing fires reads as coverage. A few
 actions state a real gap outright rather than fake coverage for it:
 `report-job` and `report-e2e` never POST to the real stores from the
-self-test, because a public repo's hosted runner holds no real service key,
-and faking that would be worse than a known gap; the real callers exercise
-that path. The `publish-npmjs` jobs run the real two-runner handoff with
+self-test, because a public repo's hosted runner holds no real service key.
+Faking that would be worse than a known gap, so the real callers exercise
+that path instead. The `publish-npmjs` jobs run the real two-runner handoff with
 `npm publish --dry-run`, so nothing is actually published.
 
 There is no separate lint or formatter command in this repo — no root
@@ -69,13 +99,14 @@ step in `selftest.yml`. The only gate on a change is the self-test above.
 ## Releasing
 
 `v1` is a release tag, moved deliberately — never a branch alias, and never
-by hand. A change lands on `main` once the self-test is green there, and then
-moves through an automated release gate elsewhere in the account: it refuses
-a commit that is not on `main` or whose self-test did not pass, runs a
-handful of real consumers' own build-and-publish path (`hadoku-aggregator`,
-`hadoku-contact-ui`, `hadoku-craft`) against the candidate actions with a
-cold cache, and moves `v1` only if every one of them is still green. A caller
-that cannot afford a fleet-wide break can pin a commit SHA instead of `@v1`.
+by hand. A change lands on `main` once the self-test is green there, and
+then moves through an automated release gate elsewhere in the account. That
+gate refuses a commit that is not on `main` or whose self-test did not
+pass. It runs a handful of real consumers' own build-and-publish path
+(`hadoku-aggregator`, `hadoku-contact-ui`, `hadoku-craft`) against the
+candidate actions with a cold cache, and moves `v1` only if every one of
+them is still green. A caller that cannot afford a fleet-wide break can pin
+a commit SHA instead of `@v1`.
 
 ## Trivia
 

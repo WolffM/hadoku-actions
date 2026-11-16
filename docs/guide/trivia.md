@@ -10,8 +10,8 @@
 
 - **One list, one-way door.** `publish-npmjs/public-packages.json` opened
   with 9 package names on 2026-10-27 and had grown to 23 by 2026-11-15 —
-  never shrinking, because an unpublish from npmjs is only honored for 72
-  hours and a version number can never be reused once it ships (`20ad07d` →
+  never shrinking. An unpublish from npmjs is only honored for 72 hours,
+  and a version number can never be reused once it ships (`20ad07d` →
   `7b974f3`).
 
 - **A tag that stuck, and one that never caught on.** `README.md`'s own
@@ -27,15 +27,17 @@
   killed by its own `timeout-minutes` and read, wrongly, as cancelled rather
   than passed (`065ad77`, issue #4).
 
-- **"The number is irrelevant, newest wins."** `next-version`'s own source
-  attributes its whole design — read every published version at once rather
-  than walk up from whatever `package.json` says — to that one line from the
-  operator, dated the day the file was written (`37e983e`, 2026-11-01).
+- **"The number is irrelevant, newest wins."** `next-version` reads every
+  published version at once rather than walking up from whatever
+  `package.json` says. Its own source attributes that whole design to one
+  line from the operator, dated the day the file was written (`37e983e`,
+  2026-11-01).
 
-- **Eleven ways to leak a secret, unchanged since day one.** Before a package
-  can reach npmjs, `publish-npmjs`'s leak gate checks every file against 11
-  secret-shaped patterns (a GitHub or npm token, an AWS key, a Slack token, a
-  JWT, a private key, a Discord webhook, a fleet host name, a private IPv4
-  address, and others) and 4 forbidden file types (`.env`, `.npmrc`, vault
-  config, key material) — the same list, unedited, since the gate's first
-  commit (`20ad07d`, `publish-npmjs/prepare.mjs`).
+- **Eleven ways to leak a secret, unchanged since day one.** Before a
+  package can reach npmjs, `publish-npmjs`'s leak gate checks every file
+  against 11 secret-shaped patterns. They cover a GitHub or npm token, an
+  AWS key, a Slack token, a JWT, a private key, a Discord webhook, a fleet
+  host name, a private IPv4 address, and others. It also checks 4
+  forbidden file types — `.env`, `.npmrc`, vault config, key material — the
+  same list, unedited, since the gate's first commit (`20ad07d`,
+  `publish-npmjs/prepare.mjs`).
