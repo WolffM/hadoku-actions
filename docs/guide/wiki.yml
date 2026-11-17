@@ -1,0 +1,29 @@
+title: hadoku-actions
+summary: >-
+  Shared GitHub Actions that give every workflow across the account the
+  same CI building blocks: reporting job and test outcomes, setting up a
+  toolchain, promoting a bot branch, and publishing a package.
+features:
+  - name: report-job
+    summary: 'Posts a workflow job outcome to the execution log, so a red run pages without waiting on a daily digest.'
+  - name: report-e2e
+    summary: 'Parses a Playwright, vitest or pytest report into per-test rows, enforces a skip-reason rule, and posts them to the nightly e2e store.'
+  - name: setup-pnpm
+    summary: 'Installs Node and the pinned pnpm, asserts the registry credential, and (with vault-fetch) can read any vault secret at job time.'
+    anchor: setup-pnpm-and-vault-fetch
+  - name: setup-python-venv
+    summary: 'Sets up Python, then builds an isolated throwaway venv so an install never lands in a shared interpreter.'
+  - name: repo-action
+    summary: 'Asks the account management API to fast-forward a bot branch onto the default branch, or to send a release notification.'
+    anchor: repo-action-and-repo-action-cli
+  - name: update-wolffm
+    summary: "Bumps the account's own packages to their latest versions, commits to a bot branch, and promotes it through repo-action."
+  - name: publish-npmjs
+    summary: "Mirrors an already-built package from the account's own registry to npmjs, behind a leak gate, across a two-job trusted-publishing handoff."
+  - name: next-version
+    summary: "Computes one patch above the newest published version and sets it as the package's version for the CI job only."
+trivia:
+  - 'It began as three byte-identical 5.5KB composite actions, hand-copied into three repos; by the time it moved into its own shared repo, 21 of 26 fleet repos reported nothing at all, one of them red for 46 runs across ten hours with only the daily digest to show it (`126237d`).'
+  - '`publish-npmjs/public-packages.json` went from 9 names to 23 in nineteen days (`20ad07d` to `7b974f3`): one entry per decision, because listing a package there makes it world-readable on npmjs forever.'
+  - 'The README''s usage example has said `@v1` since the very first commit (`126237d`). The repo also carries a one-off semver tag, `v1.1.0` (2026-09-28, on `ce72571`) — never mentioned in any README revision, before or after.'
+  - 'An unbounded curl on the results POST once held a green `rust` job for 38 minutes until its own timeout killed it, misreporting a pass as a cancel (`065ad77`, issue #4).'
