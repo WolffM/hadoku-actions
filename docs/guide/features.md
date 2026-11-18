@@ -155,8 +155,10 @@ actually deploys from this repo; there is no verification here that it does.
 
 ## update-wolffm
 
-[`update-wolffm/action.yml`](../../update-wolffm/action.yml) runs `pnpm
-update -r --latest "@wolffm/*"` (via `setup-pnpm`), restores any in-repo
+[`update-wolffm/action.yml`](../../update-wolffm/action.yml) resolves
+the version each `@wolffm/*` dependency should move to once, from GitHub
+Packages' latest, and runs `pnpm update -r` with those pinned versions (via
+`setup-pnpm`). It then restores any in-repo
 workspace package the update rewrote away from `workspace:*`, and asserts
 every `@wolffm/*` dependency across the workspace is now at the registry's
 latest (majors included — "pin back" is not an option it offers). It then
@@ -166,16 +168,23 @@ shell before anything is pushed, for a repo that needs to do more than bump a
 version number.
 
 It also waits, within a time budget, for npmjs to catch up before
-comparing. A consumer on the `@hadoku/*` npmjs aliases that updates while
+installing. A consumer on the `@hadoku/*` npmjs aliases that updates while
 GitHub Packages is ahead of npmjs's own mirror by a couple of minutes would
 otherwise 404 on a tarball, or resolve a dependency before its own
-dependency (issue #6). A release published *while* this job is running is
+dependency (issue #6). npmjs also lists a version 4-5 minutes before its
+tarball serves, so the wait is on the tarball itself, and on every
+`@hadoku/*` version a target pins exactly (issue #7). Because the targets are
+pinned, a retry never chases a release published mid-run. A release
+published *while* this job is running is
 forgiven rather than flagged as drift, as long as nothing older was missed
 (issue #1). A re-run of a promote that already landed is recognised and
 ends cleanly rather than conflicting with its own prior commit (issue #3).
 
-**Limits**: the caller must check out with the default `GITHUB_TOKEN` (no
-`token:` override) and grant `contents: write` — that token can push the bot
+**Limits**: the wait and the install's retries share `wait-budget-s` (390 s
+by default), and the rest of a run takes about two minutes plus `verify`, so
+the caller's `timeout-minutes` must be at least 10. The caller must check out
+with the default `GITHUB_TOKEN` (no `token:` override) and grant `contents:
+write` — that token can push the bot
 branch but, deliberately, not the protected default branch directly.
 
 ## publish-npmjs
