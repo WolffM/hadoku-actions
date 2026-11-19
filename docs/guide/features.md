@@ -242,6 +242,19 @@ a GitHub-hosted runner's IP range is challenged before it reaches the account's
 infrastructure), a third, self-hosted job reports on its behalf using
 `report-job`.
 
+A publish that fails is reported under npm's own error code
+([`publish-npmjs/publish/publish.sh`](../../publish-npmjs/publish/publish.sh)).
+Only `E404` and `ENEEDAUTH` point at the package's trusted publisher; any
+other code is named as it is. One code is retried in the job, up to three
+tries: `TLOG_CREATE_ENTRY_ERROR`, a failure to write the provenance to
+Sigstore's transparency log. npm writes that entry before it uploads, so
+nothing has reached npmjs when it fails. It was added after hadoku-cardtable
+run 44447837922 (issue #8), where two packages in one job each got a 409
+"an equivalent entry already exists": the log's own timestamps put each entry
+inside the `npm publish` that then failed on it, 40 seconds later. The action
+called both a trusted-publisher problem, and neither version ever reached
+npmjs.
+
 **Limits**: a publish to npmjs is permanent — an unpublish is only honored for
 72 hours and a version number can never be reused — so `dry-run: 'true'` on
 either half is the only way to preview the result before it ships. Each

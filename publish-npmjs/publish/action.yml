@@ -90,37 +90,4 @@ runs:
       env:
         DIR: ${{ runner.temp }}/npmjs
         DRY_RUN: ${{ inputs.dry-run }}
-      run: |
-        set -euo pipefail
-        cd "$DIR"
-        failed=0
-        dry=(); [ "$DRY_RUN" = 'true' ] && dry=(--dry-run)
-        for tgz in *.tgz; do
-          name=$(tar -xzOf "$tgz" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).name')
-          version=$(tar -xzOf "$tgz" package/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).version')
-          # Checked BEFORE publishing rather than parsed from a failed publish:
-          # npm's "cannot publish over" wording has changed between releases.
-          set +e
-          out=$(npm view "$name@$version" version --registry https://registry.npmjs.org/ 2>&1); code=$?
-          set -e
-          if [ $code -eq 0 ] && [ "$out" = "$version" ]; then
-            echo "✓ $name@$version is already on npmjs — no-op (bump the version to release)"
-          elif echo "$out" | grep -q E404; then
-            # A 404 or ENEEDAUTH here, with the version absent, means the package
-            # has no trusted publisher for THIS repo and workflow file.
-            # npm refuses a prerelease without a tag; `next` keeps it off `latest`.
-            tag=(); [[ "$version" == *-* ]] && tag=(--tag next)
-            if npm publish "$tgz" --access public --registry https://registry.npmjs.org/ "${tag[@]}" "${dry[@]}"; then
-              if [ ${#dry[@]} -eq 0 ]; then echo "📦 Published $name@$version to npmjs"
-              else echo "dry run: would publish $name@$version to npmjs"; fi
-            else
-              echo "::error::npm refused $name@$version — check its trusted publisher (npm trust list $name)"
-              failed=1
-            fi
-          else
-            echo "$out"
-            echo "::error::could not ask npmjs whether $name@$version exists (exit $code)"
-            failed=1
-          fi
-        done
-        exit $failed
+      run: bash "$GITHUB_ACTION_PATH/publish.sh"

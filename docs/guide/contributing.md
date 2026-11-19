@@ -30,6 +30,7 @@ report-e2e/parse.mjs         the report parser report-e2e's action.yml calls
 publish-npmjs/prepare.mjs    the pack/rewrite/leak-gate publish-npmjs's action.yml calls
 publish-npmjs/public-packages.json   the allow-list prepare.mjs checks against
 publish-npmjs/publish/       the second, GitHub-hosted half of publish-npmjs
+publish-npmjs/publish/publish.sh   the publish loop that half's action.yml calls
 repo-action/call.sh          the HTTP call repo-action, repo-action-cli and
                               update-wolffm all share
 vault-fetch/fetch.sh         the vault read, shared by vault-fetch's own
@@ -101,7 +102,10 @@ actions state a real gap outright rather than fake coverage for it:
 self-test, because a public repo's hosted runner holds no real service key.
 Faking that would be worse than a known gap, so the real callers exercise
 that path instead. The `publish-npmjs` jobs run the real two-runner handoff with
-`npm publish --dry-run`, so nothing is actually published.
+`npm publish --dry-run`, so nothing is actually published. What a failed
+publish is called, and which one is retried, is asserted separately by
+running `publish.sh` against a stand-in `npm`
+(`.github/selftest/publish-npmjs-publish-cases.sh`).
 
 A few jobs prove more than a single pass/fail. `setup-python-venv` runs
 twice: once asserting the contract a caller depends on (the interpreter path,

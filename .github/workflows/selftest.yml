@@ -922,6 +922,12 @@ jobs:
       - name: rewrite and leak-gate cases
         run: bash .github/selftest/publish-npmjs-cases.sh
 
+      # The publish half's own shell against a stand-in npm: which failures are
+      # retried, and what each one is called (issue #8: a transparency-log 409
+      # was reported as a trusted-publisher problem).
+      - name: publish cases
+        run: bash .github/selftest/publish-npmjs-publish-cases.sh
+
   # The handoff end to end, short of the upload: stage a throwaway package on
   # one runner, then publish it with --dry-run from another, exactly as a caller
   # wires the two jobs. Proves the artifact name, the tarball shape and the
