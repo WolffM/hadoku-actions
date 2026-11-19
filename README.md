@@ -1,5 +1,7 @@
 # hadoku-actions
 
+**Guide:** [overview](docs/guide/index.md) · [features](docs/guide/features.md) · [contributing](docs/guide/contributing.md) · [history](docs/guide/history.md) · [trivia](docs/guide/trivia.md)
+
 Composite GitHub Actions shared across the hadoku fleet. Public **because it has
 to be**: hadoku_site owns these contracts but is private, and a public repo
 cannot `uses:` an action from a user-owned private repo.
