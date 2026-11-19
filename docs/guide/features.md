@@ -5,6 +5,13 @@ from any workflow in any repo — public or private, on this account or anyone
 else's. None of them hold a secret; a caller always passes its own credential
 in as an input or an env var.
 
+The credential itself must exist as a repo secret before a workflow can
+reference it: seed it with `POST /mgmt/api/keys/seed-github-secret {name}`
+(mgmt-api), or let the daily `keys:github-secret-seed` cron pick it up once a
+workflow on the default branch references it. An unset secret reads as an
+empty string, not an error, so most actions here warn and skip rather than
+fail the caller's build — check the run log the first time.
+
 ## report-job
 
 [`report-job/action.yml`](../../report-job/action.yml) POSTs one job's outcome
@@ -52,12 +59,11 @@ empirically against a real `pytest --reruns 2 --junitxml=...` run, not read
 out of pytest-rerunfailures' own docs — the fixture it produced is committed
 at [`report-e2e/fixtures/pytest-report.xml`](../../report-e2e/fixtures/pytest-report.xml).
 
-The skip rule: a workspace's `e2e.json` may declare `e2eSkipAllow`, a map of
-`{"<test title>": "<one-line reason>"}`. Any test that skipped without an
-entry there fails the job. The map is the *only* shape accepted. An older
-convention used a bare array of titles, and a map read against that old
-code silently became an empty allow-list. That would have failed every one
-of a real 80-entry allow-list with no indication why (`9771b81`). Today a
+The skip rule: a workspace's `e2e.json` may declare `e2eSkipAllow`; its one
+accepted shape is in [`README.md`](../../README.md#report-e2e). An older
+convention used a bare array of titles instead, and a map read against that
+old code silently became an empty allow-list. That would have failed every
+one of a real 80-entry allow-list with no indication why (`9771b81`). Today a
 present `e2eSkipAllow` of any other shape fails loudly instead, naming the
 bad key.
 
@@ -85,7 +91,11 @@ everything from cache and go green having authenticated with nothing. Pass
 time instead of a GitHub Secret, so a credential rotation is one write
 every later job sees rather than a sweep across every repo's secrets one at
 a time. A 403/404 from the broker still fails outright, so a missing grant
-is never silently masked by a stale fallback value.
+is never silently masked by a stale fallback value. The key needs a grant
+first: declare the token's name in the repo's `.devvault.json` and run the
+account's `sync-service-acl.mjs --confirm` admin script. Without
+`vault-key`, the `npm-token` output is just the input unchanged, so a caller
+can adopt this action against the plain secret before that grant exists.
 
 It also pins the pnpm store for the rest of the job
 (`pnpm_config_store_dir`), because pnpm 11 re-checks dependencies before
@@ -103,11 +113,24 @@ one into `GITHUB_ENV`, masked. A `VAULT_FALLBACK_<NAME>` env var is used only
 when the broker could not be reached or declared itself not ready — never on a
 403/404, which means "no" and must stay loud.
 
+The install step itself needs `NODE_AUTH_TOKEN` set from this action's
+`npm-token` output — not the action — because `setup-node` already writes a
+*tokenless* npmrc whose `${NODE_AUTH_TOKEN}` pnpm expands at install time.
+This action only asserts the token is non-empty: an unset secret reads as
+empty, and on a self-hosted runner with a warm pnpm store that is invisible,
+since the install resolves from cache and CI goes green having authenticated
+with nothing — a real fleet repo hit exactly this on 2026-08-24, finding out
+only at publish, on another machine, as a bare 401. Never hand-write an
+`.npmrc` containing a token instead — a repo whose `.npmrc` is not gitignored
+then hands that credential to any commit-back workflow it later gains.
+
 **Limits**: `setup-pnpm` does not install dependencies; a caller still runs
 `pnpm install` itself, with the token from this action's output on that one
 step's env, never exported ambiently. Do not add `cache: pnpm` to a caller —
 it makes `actions/setup-node` shell out to pnpm before corepack has activated
-it, which this action's own ordering is built to avoid.
+it, which this action's own ordering is built to avoid. Pass
+`assert-token: 'false'` only for a job that installs nothing from the private
+registry, to skip the credential check.
 
 ## setup-python-venv
 
@@ -118,7 +141,14 @@ still fails loudly, which is by design), then builds a throwaway venv under
 configurable via `install`). It then asserts that every name passed in
 `assert-imports` actually resolved from inside the venv or the checkout —
 not from a shared, persistent interpreter that other jobs on the same
-self-hosted machine also write into. `cache` is off by default: the runner's own pip cache
+self-hosted machine also write into. Installing into that shared interpreter
+is not hermetic: pip answers *already satisfied* against whatever the box
+already holds, so `pyproject.toml`'s constraints go unenforced. A skipped
+install also writes no entry point, and `~/.local/bin` is not on `PATH` —
+that is exactly the `ruff: command not found`, exit 127, that reddened a
+fleet repo's build on 2026-09-24 with ruff installed the whole time.
+
+`cache` is off by default: the runner's own pip cache
 already persists, and `setup-python`'s own cache option archives and restores
 that *entire* shared directory rather than just this project's wheels.
 
