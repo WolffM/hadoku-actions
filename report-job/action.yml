@@ -87,9 +87,10 @@ inputs:
   extra-jobs:
     description: >-
       Further outcomes to post in the same call, as a JSON array of
-      `{"name": "worker:job", "outcome": "success|failure", "started-at": N,
+      `{"name": "worker:job", "outcome": "success|failure", "duration-ms": N,
       "error": "..."}` objects. For a job that does several named units of work
-      in one go — see "Reporting N units from one job" in action.yml.
+      in one go — see "Reporting N units from one job" in action.yml. Each
+      entry carries its own DURATION, not a start time; the note there says why.
     required: false
     default: ''
 
@@ -258,9 +259,16 @@ runs:
         # end-to-end, hadoku_site#626).
         #
         # A `uses:` step cannot be looped over a list the job computed, so the
-        # names come in as data instead. Each entry carries its OWN
-        # `started-at`, because the point of collapsing the jobs is that the
-        # work is sequential — the job's duration is not any one unit's.
+        # names come in as data instead.
+        #
+        # AN ENTRY CARRIES ITS OWN DURATION, NEVER A START TIME. Every entry is
+        # posted here, together, AFTER the last unit finished — so `now minus a
+        # start time`, which is how this job's own duration is computed, would
+        # measure "from that unit's start until the whole job ended". It read
+        # plausibly and was wrong: on the 17-worker deploy that first used this
+        # (hadoku_site run 45133651099) each worker did ~12s of work and the
+        # rows came out 188s, 171s, 164s ... 18s, monotonically decreasing down
+        # the list. A start time is therefore REFUSED, not ignored.
         #
         # Malformed input is refused rather than skipped (`exit 1`, like a
         # colon-less `job-name`): an entry silently dropped is the silence this
@@ -284,9 +292,13 @@ runs:
           fi
           e_name=$(printf '%s' "$entry" | jq -r '.name // ""')
           e_outcome=$(printf '%s' "$entry" | jq -r '.outcome // ""')
-          e_started=$(printf '%s' "$entry" | jq -r '."started-at" // ""')
+          e_duration=$(printf '%s' "$entry" | jq -r '."duration-ms" // ""')
           e_error=$(printf '%s' "$entry" | jq -r '.error // ""')
 
+          if [ "$(printf '%s' "$entry" | jq -r 'has("started-at")')" = "true" ]; then
+            echo "::error::$at carries started-at. Entries are posted after the last unit finished, so a start time measures until the END of the job, not the unit — send duration-ms instead."
+            exit 1
+          fi
           case "$e_name" in
             *:*) ;;
             *) echo "::error::$at.name must be \"worker:job\", got '$e_name'"; exit 1 ;;
@@ -296,10 +308,9 @@ runs:
             failure) e_status=failed ;;
             *) echo "$at $e_name outcome=$e_outcome — not reported"; continue ;;
           esac
-          case "$e_started" in
+          case "$e_duration" in
             '') e_duration=0 ;;
-            *[!0-9]*) echo "::error::$at.started-at must be epoch seconds, got '$e_started'"; exit 1 ;;
-            *) e_duration=$(( ($(date -u +%s) - e_started) * 1000 )) ;;
+            *[!0-9]*) echo "::error::$at.duration-ms must be whole milliseconds, got '$e_duration'"; exit 1 ;;
           esac
 
           post "$e_name" "$e_status" "$e_duration" "${e_error:-$e_name failed — $RUN_URL}"

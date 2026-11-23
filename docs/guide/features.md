@@ -35,8 +35,12 @@ reported and the alert state stays stuck broken.
 
 A job that does several *named* units of work in one go reports them all in
 one call, through `extra-jobs`: a JSON array of
-`{name, outcome, started-at, error}` objects, each posted as its own row with
-its own duration. The names matter because monitoring-api hangs the alert
+`{name, outcome, duration-ms, error}` objects, each posted as its own row.
+An entry carries the duration the caller measured, never a start time — the
+entries are all posted after the last unit finished, so a start time would
+measure until the end of the job rather than the unit, which is how the first
+caller's seventeen rows came out counting down from 188s to 18s over ~12s of
+work each. A start time on an entry is now refused. The names matter because monitoring-api hangs the alert
 streak and the recovery notice on the job name, so collapsing six worker
 deploys into one row would make a persistently broken worker look like a
 flaky sibling. A `uses:` step cannot be looped over a list the job computed,

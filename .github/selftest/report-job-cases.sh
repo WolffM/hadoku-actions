@@ -159,24 +159,32 @@ batch 'an empty outcome is skipped, not refused' 0 \
   'extra-jobs[0] a:unreached outcome= — not reported' \
   -- EXTRA_JOBS='[{"name":"a:unreached","outcome":""},{"name":"c:three","outcome":"success"}]'
 
-# Per-entry durations, because the work is sequential and the job's own
-# duration is not any one unit's: the job here has no started-at (0ms) while
-# its entry reports 45s. Asserted as a range, not a value — this harness takes
-# a second or two to reach the case.
+# An entry's duration is what the CALLER measured, passed straight through —
+# never `now` minus a start time. Everything is posted after the last unit
+# finished, so subtracting here would measure until the end of the job: on the
+# 17-worker deploy that first used this, ~12s of work per worker came out as
+# 188s, 171s ... 18s. So the entry's own 45000 must survive verbatim even
+# though the job itself ran for an hour.
 rm -f "$work/payload.json" "$work/payload.json.all"
 env -i PATH="$work/bin:$PATH" HOME="$work" CURL_RECORD="$work/payload.json" \
-  JOB_NAME=selftest:batch SERVICE_KEY=k OUTCOME=success STARTED_AT= \
+  JOB_NAME=selftest:batch SERVICE_KEY=k OUTCOME=success STARTED_AT=$(( $(date -u +%s) - 3600 )) \
   ERROR_MESSAGE= TIMEOUT_MINUTES= RUN_ID=7 RUN_URL=https://example.invalid/run \
-  EXTRA_JOBS="[{\"name\":\"d:four\",\"outcome\":\"success\",\"started-at\":$(( $(date -u +%s) - 45 ))}]" \
+  EXTRA_JOBS='[{"name":"d:four","outcome":"success","duration-ms":45000}]' \
   bash "$work/body.sh" > /dev/null 2>&1
 own=$(jq -s -r '.[0].duration_ms' "$work/payload.json.all")
 entry=$(jq -s -r '.[1].duration_ms' "$work/payload.json.all")
-if [ "$own" = "0" ] && [ "$entry" -ge 45000 ] && [ "$entry" -lt 55000 ]; then
-  echo "ok   each entry times itself (job ${own}ms, entry ${entry}ms)"
+if [ "$own" = "3600000" ] && [ "$entry" = "45000" ]; then
+  echo "ok   an entry's duration is the caller's, not now-minus-start (job ${own}ms, entry ${entry}ms)"
 else
-  echo "FAIL each entry times itself: job=${own}ms entry=${entry}ms (wanted job 0ms, entry ~45000ms)"
+  echo "FAIL entry duration: job=${own}ms entry=${entry}ms (wanted job 3600000ms, entry exactly 45000ms)"
   fails=$((fails + 1))
 fi
+
+# A start time on an entry is REFUSED, not quietly treated as a duration: it is
+# the one mistake this shape invites, and it reads plausibly in the log.
+batch 'a start time on an entry is refused' 1 '[{"n":"selftest:batch","s":"succeeded","r":"gha_7_selftest-batch"}]' \
+  'carries started-at' \
+  -- EXTRA_JOBS='[{"name":"k:eleven","outcome":"success","started-at":1764000000}]'
 
 # A caller error message survives to the row.
 run 'an entry carries its own error' 0 failed 'migrations refused' -- \
@@ -190,9 +198,9 @@ batch 'a non-object entry is refused' 1 '[{"n":"selftest:batch","s":"succeeded",
   'extra-jobs[0] must be an object' -- EXTRA_JOBS='["g:seven"]'
 batch 'a colon-less entry name is refused' 1 '[{"n":"selftest:batch","s":"succeeded","r":"gha_7_selftest-batch"}]' \
   'extra-jobs[0].name must be "worker:job"' -- EXTRA_JOBS='[{"name":"nocolon","outcome":"success"}]'
-batch 'a non-numeric started-at is refused' 1 '[{"n":"selftest:batch","s":"succeeded","r":"gha_7_selftest-batch"}]' \
-  'extra-jobs[0].started-at must be epoch seconds' \
-  -- EXTRA_JOBS='[{"name":"h:eight","outcome":"success","started-at":"yesterday"}]'
+batch 'a non-numeric duration-ms is refused' 1 '[{"n":"selftest:batch","s":"succeeded","r":"gha_7_selftest-batch"}]' \
+  'extra-jobs[0].duration-ms must be whole milliseconds' \
+  -- EXTRA_JOBS='[{"name":"h:eight","outcome":"success","duration-ms":"a while"}]'
 
 # A superseded or keyless job reports NOTHING, not a partial set of its units.
 batch 'a cancelled job posts no entries' 0 '[]' 'outcome=cancelled — not reported' \

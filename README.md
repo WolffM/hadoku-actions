@@ -72,13 +72,16 @@ with its own duration, through `extra-jobs`:
     job-name: myrepo:deploy
     service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
     started-at: ${{ env.JOB_STARTED_AT }}
-    # [{"name": "myrepo:deploy-a", "outcome": "success", "started-at": 1764000000},
+    # [{"name": "myrepo:deploy-a", "outcome": "success", "duration-ms": 12000},
     #  {"name": "myrepo:deploy-b", "outcome": "failure", "error": "migrations refused"}]
     extra-jobs: ${{ steps.deploy.outputs.report }}
 ```
 
-An entry with no `outcome` is a unit the job never reached and is not
-reported. A malformed one fails the step.
+Each entry carries the duration the caller MEASURED, never a start time: the
+entries are all posted after the last unit finished, so a start time would
+measure until the end of the job. A start time on an entry is refused. An
+entry with no `outcome` is a unit the job never reached and is not reported.
+A malformed one fails the step.
 
 ## `report-e2e`
 
