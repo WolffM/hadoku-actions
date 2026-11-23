@@ -64,12 +64,14 @@ async function get(url, headers) {
 }
 
 async function main() {
-	if (!SERVICE_KEY || !ENDPOINT || !APP || !HEAD_SHA) return EMPTY;
+	if (!SERVICE_KEY || !ENDPOINT || !APP || !HEAD_SHA) {
+		return { ...EMPTY, note: 'no service key, store endpoint, app or head sha to look the last green run up with' };
+	}
 	const store = ENDPOINT.replace(/\/+(results\/*)?$/, '');
 	const q = new URLSearchParams({ app: APP, ...(REF ? { ref: REF } : {}) });
 	const { run } = await get(`${store}/runs/last-green?${q}`, { 'X-User-Key': SERVICE_KEY });
 	const base = run?.head_sha ?? null;
-	if (!base) return EMPTY;
+	if (!base) return { ...EMPTY, note: `the store has no green run of ${APP}${REF ? ` on ${REF}` : ''} yet` };
 	if (base === HEAD_SHA) return { base_sha: base, commits_since_base: 0, commits: [], dep_bumps: [] };
 
 	const cmp = await get(`${API}/repos/${REPO}/compare/${base}...${HEAD_SHA}`, {
@@ -100,6 +102,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 		out = { ...EMPTY, error: err.message };
 	}
 	writeFileSync(process.env.OUT, JSON.stringify(out));
+	if (out.note) console.log(`no change window: ${out.note}`);
 	if (out.commits_since_base !== null) {
 		const deps = out.commits.filter((c) => c.kind === 'deps').length;
 		console.log(
