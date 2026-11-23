@@ -97,10 +97,31 @@ jobs:
           fi
           echo "timeout-minutes without started-at refused, as it must be"
 
+      # A malformed `extra-jobs` entry is refused the same way a colon-less
+      # job-name is, and through the COMPOSITE wrapper — the extracted-shell
+      # cases below cannot prove the input is wired into the env block at all.
+      - name: a malformed extra-jobs entry is refused
+        id: badbatch
+        continue-on-error: true
+        uses: ./report-job
+        with:
+          job-name: selftest:bad-batch
+          service-key: not-a-real-key
+          extra-jobs: '[{"name":"nocolon","outcome":"success"}]'
+
+      - name: assert the refusal actually fired
+        run: |
+          if [ "${{ steps.badbatch.outcome }}" != "failure" ]; then
+            echo "::error::report-job accepted a colon-less extra-jobs name"
+            exit 1
+          fi
+          echo "malformed extra-jobs entry refused, as it must be"
+
       # The cases above stop before the POST. This one runs the action's shell
       # EXTRACTED from action.yml against a stand-in curl, so what a timed-out
-      # job sends — status=failed, "timed out after N min" — is asserted, and a
-      # supersede is proven to stay silent.
+      # job sends — status=failed, "timed out after N min" — is asserted, a
+      # supersede is proven to stay silent, and `extra-jobs` is proven to post
+      # one row per entry rather than folding them into one.
       - name: outcome and age cases, against the extracted shell
         run: bash .github/selftest/report-job-cases.sh
 

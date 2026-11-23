@@ -84,6 +84,14 @@ inputs:
       Needs `started-at`. Omitted means every cancel stays unreported.
     required: false
     default: ''
+  extra-jobs:
+    description: >-
+      Further outcomes to post in the same call, as a JSON array of
+      `{"name": "worker:job", "outcome": "success|failure", "started-at": N,
+      "error": "..."}` objects. For a job that does several named units of work
+      in one go — see "Reporting N units from one job" in action.yml.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -96,6 +104,7 @@ runs:
         STARTED_AT: ${{ inputs.started-at }}
         ERROR_MESSAGE: ${{ inputs.error-message }}
         TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        EXTRA_JOBS: ${{ inputs.extra-jobs }}
         RUN_ID: ${{ github.run_id }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
@@ -113,7 +122,9 @@ runs:
         fi
 
         # A cancel (concurrency superseded the run) is not breakage, and must
-        # not clear a live failure streak either — stay silent.
+        # not clear a live failure streak either — stay silent. That silence
+        # covers `extra-jobs` too: a superseded or keyless job reports nothing
+        # at all, not a partial set of its units.
         #
         # EXCEPT a timeout. GitHub reports a `timeout-minutes` kill as
         # `cancelled` too, and that IS breakage: hadoku-dataplatform's nightly
@@ -166,6 +177,8 @@ runs:
           err="${ERROR_MESSAGE:-$JOB_NAME failed — $RUN_URL}"
         fi
 
+        # One POST per outcome: this job's own, then one per `extra-jobs` entry.
+        #
         # run_id is `gha_<run id>`, and POST /health/api/jobs UPSERTS on it, so a
         # second write for the same run updates the row rather than inventing a
         # second failure.
@@ -175,6 +188,8 @@ runs:
         # site:deploy-workers:detect-changes was overwritten by
         # site:deploy-worker:jobplatform-api. Across a matrix that is a false
         # green: a failed worker's row replaced by a later worker's success.
+        # `extra-jobs` would have the same collision for free, since every entry
+        # posts from ONE job — the slug is what keeps the N rows apart.
         #
         # The slug keeps the property the upsert exists for — the SAME job
         # re-posting for the same run still updates its own row rather than
@@ -185,38 +200,107 @@ runs:
         # on one node overwrote each other's body, and a file left by another
         # user cannot be overwritten at all. claw-5, 2026-10-28: after its CI
         # moved to its own user, admin's old /tmp/report-job.json turned every
-        # green job red with "Permission denied".
-        body="${RUNNER_TEMP:-$(mktemp -d)}/report-job-$$.json"
-        slug=$(printf '%s' "$JOB_NAME" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')
-        jq -n --arg st "$status" --arg run "gha_${RUN_ID}_${slug}" --arg name "$JOB_NAME" \
-              --arg err "$err" --argjson d "$duration_ms" \
-          '{job_name: $name, status: $st, run_id: $run, duration_ms: $d}
-           + (if $st == "failed" then {error: $err} else {} end)' > "$body"
+        # green job red with "Permission denied". A per-POST suffix because one
+        # call now writes several bodies.
+        posted=0
+        post() {
+          local name=$1 st=$2 dur=$3 why=$4 body slug hdr code
+          posted=$((posted + 1))
+          body="${RUNNER_TEMP:-$(mktemp -d)}/report-job-$$-$posted.json"
+          slug=$(printf '%s' "$name" | tr -c 'A-Za-z0-9' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')
+          jq -n --arg st "$st" --arg run "gha_${RUN_ID}_${slug}" --arg name "$name" \
+                --arg err "$why" --argjson d "$dur" \
+            '{job_name: $name, status: $st, run_id: $run, duration_ms: $d}
+             + (if $st == "failed" then {error: $err} else {} end)' > "$body"
 
-        # Never fail the job over a reporting blip. `-f` so a non-2xx shows.
-        # Bounded, because the `||` below only runs once curl returns: on
-        # 2026-10-29 an unanswered POST held watchparty's green `rust` job for
-        # 38 minutes until its timeout-minutes killed it, and the run read as
-        # cancelled (hadoku-actions#4).
+          # Never fail the job over a reporting blip. `-f` so a non-2xx shows.
+          # Bounded, because the `||` below only runs once curl returns: on
+          # 2026-10-29 an unanswered POST held watchparty's green `rust` job for
+          # 38 minutes until its timeout-minutes killed it, and the run read as
+          # cancelled (hadoku-actions#4).
+          #
+          # A GitHub-HOSTED runner never gets through: hadoku.me's Bot Fight Mode
+          # answers every request from those IPs with a challenge page (403,
+          # `cf-mitigated: challenge`) before any worker runs. Every npmjs job
+          # reported into that wall from day one and read as a generic warning,
+          # so nobody knew its failures could not page. Say which wall it is.
+          hdr="${body%.json}.headers"
+          code=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -D "$hdr" -w '%{http_code}' \
+            -X POST https://hadoku.me/health/api/jobs \
+            -H "X-User-Key: $SERVICE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data @"$body") || true
+          case "$code" in
+            2??) echo "reported $name=$st (${dur}ms)" ;;
+            *)
+              if grep -qi '^cf-mitigated:' "$hdr" 2>/dev/null; then
+                echo "::warning::could not report $name: Cloudflare challenged this runner (HTTP $code). A GitHub-hosted runner cannot reach hadoku.me; report this job from a self-hosted job that needs it, with outcome set to needs.<job>.result."
+              else
+                echo "::warning::could not report $name to monitoring-api (HTTP ${code:-none})"
+              fi
+              ;;
+          esac
+        }
+
+        post "$JOB_NAME" "$status" "$duration_ms" "$err"
+
+        [ -n "$EXTRA_JOBS" ] || exit 0
+
+        # REPORTING N UNITS FROM ONE JOB
+        # ------------------------------
+        # A job that deploys six workers in one go still owes six named
+        # outcomes: monitoring-api hangs the alert streak and the recovery
+        # notice on the job NAME, so one row per job would make a persistently
+        # broken worker indistinguishable from a flaky sibling, and the digest
+        # could no longer say which one. hadoku_site's deploy-workers.yml ran
+        # one job per changed worker for exactly that reason, and paid a queue
+        # wait, a checkout and an install per worker for it (p90 671s
+        # end-to-end, hadoku_site#626).
         #
-        # A GitHub-HOSTED runner never gets through: hadoku.me's Bot Fight Mode
-        # answers every request from those IPs with a challenge page (403,
-        # `cf-mitigated: challenge`) before any worker runs. Every npmjs job
-        # reported into that wall from day one and read as a generic warning,
-        # so nobody knew its failures could not page. Say which wall it is.
-        hdr="${body%.json}.headers"
-        code=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -D "$hdr" -w '%{http_code}' \
-          -X POST https://hadoku.me/health/api/jobs \
-          -H "X-User-Key: $SERVICE_KEY" \
-          -H 'Content-Type: application/json' \
-          --data @"$body") || true
-        case "$code" in
-          2??) echo "reported $JOB_NAME=$status (${duration_ms}ms)" ;;
-          *)
-            if grep -qi '^cf-mitigated:' "$hdr" 2>/dev/null; then
-              echo "::warning::could not report $JOB_NAME: Cloudflare challenged this runner (HTTP $code). A GitHub-hosted runner cannot reach hadoku.me; report this job from a self-hosted job that needs it, with outcome set to needs.<job>.result."
-            else
-              echo "::warning::could not report $JOB_NAME to monitoring-api (HTTP ${code:-none})"
-            fi
-            ;;
-        esac
+        # A `uses:` step cannot be looped over a list the job computed, so the
+        # names come in as data instead. Each entry carries its OWN
+        # `started-at`, because the point of collapsing the jobs is that the
+        # work is sequential — the job's duration is not any one unit's.
+        #
+        # Malformed input is refused rather than skipped (`exit 1`, like a
+        # colon-less `job-name`): an entry silently dropped is the silence this
+        # whole action exists to end. An entry whose `outcome` is empty or
+        # unreportable is NOT malformed — that is a unit the job never reached,
+        # and it stays unreported, the same as a cancelled job.
+        if ! printf '%s' "$EXTRA_JOBS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+          echo "::error::extra-jobs must be a JSON array, got '$EXTRA_JOBS'"
+          exit 1
+        fi
+
+        count=$(printf '%s' "$EXTRA_JOBS" | jq 'length')
+        i=0
+        while [ "$i" -lt "$count" ]; do
+          entry=$(printf '%s' "$EXTRA_JOBS" | jq -c ".[$i]")
+          at="extra-jobs[$i]"
+          i=$((i + 1))
+          if [ "$(printf '%s' "$entry" | jq -r 'type')" != "object" ]; then
+            echo "::error::$at must be an object, got '$entry'"
+            exit 1
+          fi
+          e_name=$(printf '%s' "$entry" | jq -r '.name // ""')
+          e_outcome=$(printf '%s' "$entry" | jq -r '.outcome // ""')
+          e_started=$(printf '%s' "$entry" | jq -r '."started-at" // ""')
+          e_error=$(printf '%s' "$entry" | jq -r '.error // ""')
+
+          case "$e_name" in
+            *:*) ;;
+            *) echo "::error::$at.name must be \"worker:job\", got '$e_name'"; exit 1 ;;
+          esac
+          case "$e_outcome" in
+            success) e_status=succeeded ;;
+            failure) e_status=failed ;;
+            *) echo "$at $e_name outcome=$e_outcome — not reported"; continue ;;
+          esac
+          case "$e_started" in
+            '') e_duration=0 ;;
+            *[!0-9]*) echo "::error::$at.started-at must be epoch seconds, got '$e_started'"; exit 1 ;;
+            *) e_duration=$(( ($(date -u +%s) - e_started) * 1000 )) ;;
+          esac
+
+          post "$e_name" "$e_status" "$e_duration" "${e_error:-$e_name failed — $RUN_URL}"
+        done

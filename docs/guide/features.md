@@ -33,9 +33,26 @@ or after that limit is reported as `failed`, because GitHub reports a
 call site is required: without it, a recovery after a red run is never
 reported and the alert state stays stuck broken.
 
-**Limits**: `report-job` is one row per CI job, not per test — see `report-e2e`
-for that. It only ever warns on a reporting failure; it deliberately never
-fails a caller's build over the execution log being unavailable.
+A job that does several *named* units of work in one go reports them all in
+one call, through `extra-jobs`: a JSON array of
+`{name, outcome, started-at, error}` objects, each posted as its own row with
+its own duration. The names matter because monitoring-api hangs the alert
+streak and the recovery notice on the job name, so collapsing six worker
+deploys into one row would make a persistently broken worker look like a
+flaky sibling. A `uses:` step cannot be looped over a list the job computed,
+so the names arrive as data instead.
+
+The first caller is a Cloudflare-worker deploy that ran one GitHub job per
+changed worker purely to get one row per worker, and paid a queue wait, a
+checkout and an install for each — a p90 of eleven minutes end to end. A
+malformed entry is refused rather than skipped; an entry with no `outcome` is
+a unit the job never reached and stays unreported, as does every entry when
+the job itself was superseded or has no key.
+
+**Limits**: `report-job` is one row per CI job — or per `extra-jobs` entry —
+never per test; see `report-e2e` for that. It only ever warns on a reporting
+failure; it deliberately never fails a caller's build over the execution log
+being unavailable.
 
 ## report-e2e
 

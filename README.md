@@ -62,6 +62,24 @@ jobs:
           timeout-minutes: 60
 ```
 
+A job that does several named units of work in one go posts a row for each,
+with its own duration, through `extra-jobs`:
+
+```yaml
+- if: always()
+  uses: WolffM/hadoku-actions/report-job@v1
+  with:
+    job-name: myrepo:deploy
+    service-key: ${{ secrets.KEY_SERVICE_MYREPO }}
+    started-at: ${{ env.JOB_STARTED_AT }}
+    # [{"name": "myrepo:deploy-a", "outcome": "success", "started-at": 1764000000},
+    #  {"name": "myrepo:deploy-b", "outcome": "failure", "error": "migrations refused"}]
+    extra-jobs: ${{ steps.deploy.outputs.report }}
+```
+
+An entry with no `outcome` is a unit the job never reached and is not
+reported. A malformed one fails the step.
+
 ## `report-e2e`
 
 ```yaml
