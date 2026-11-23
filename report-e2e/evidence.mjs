@@ -72,7 +72,7 @@ export function runRecord() {
 }
 
 async function postRun(record) {
-	const url = `${env.ENDPOINT.replace(/\/results\/?$/, '')}/runs`;
+	const url = `${env.ENDPOINT.replace(/\/+(results\/*)?$/, '')}/runs`;
 	try {
 		const res = await fetch(url, {
 			method: 'POST',

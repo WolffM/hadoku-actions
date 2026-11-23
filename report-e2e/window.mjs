@@ -65,7 +65,7 @@ async function get(url, headers) {
 
 async function main() {
 	if (!SERVICE_KEY || !ENDPOINT || !APP || !HEAD_SHA) return EMPTY;
-	const store = ENDPOINT.replace(/\/results\/?$/, '');
+	const store = ENDPOINT.replace(/\/+(results\/*)?$/, '');
 	const q = new URLSearchParams({ app: APP, ...(REF ? { ref: REF } : {}) });
 	const { run } = await get(`${store}/runs/last-green?${q}`, { 'X-User-Key': SERVICE_KEY });
 	const base = run?.head_sha ?? null;
