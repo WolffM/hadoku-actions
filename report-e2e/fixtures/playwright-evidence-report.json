@@ -1,0 +1,544 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/runner/_work/app/app/node_modules/@playwright/test/cli.js",
+      "test"
+    ],
+    "configFile": "/runner/_work/app/app/playwright.config.ts",
+    "rootDir": "/runner/_work/app/app",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/runner/_work/app/app/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/runner/_work/app/app",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "report.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "a.spec.ts",
+      "file": "a.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "passes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 826,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-23T20:18:07.741Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4bb17c2992a2b9ccc470-f92dbb031fae5f224df6",
+          "file": "a.spec.ts",
+          "line": 3,
+          "column": 5
+        },
+        {
+          "title": "fails",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 892,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n\n    at /runner/_work/app/app/a.spec.ts:4:239\n    at /runner/_work/app/app/a.spec.ts:4:163",
+                    "location": {
+                      "file": "/runner/_work/app/app/a.spec.ts",
+                      "column": 239,
+                      "line": 4
+                    },
+                    "snippet": "  2 | let n = 0;\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n> 4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n    |                                                                                                                                                                                                                                               ^\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/runner/_work/app/app/a.spec.ts",
+                        "column": 239,
+                        "line": 4
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n\n\n  2 | let n = 0;\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n> 4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n    |                                                                                                                                                                                                                                               ^\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n    at /runner/_work/app/app/a.spec.ts:4:239\n    at /runner/_work/app/app/a.spec.ts:4:163"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "steps": [
+                    {
+                      "title": "check text",
+                      "duration": 531,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n\n    at /runner/_work/app/app/a.spec.ts:4:239\n    at /runner/_work/app/app/a.spec.ts:4:163",
+                        "location": {
+                          "file": "/runner/_work/app/app/a.spec.ts",
+                          "column": 239,
+                          "line": 4
+                        },
+                        "snippet": "  2 | let n = 0;\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n> 4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n    |                                                                                                                                                                                                                                               ^\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });"
+                      }
+                    }
+                  ],
+                  "startTime": "2026-11-23T20:18:09.175Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/runner/_work/app/app/test-results/a-fails/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/runner/_work/app/app/test-results/a-fails/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/runner/_work/app/app/test-results/a-fails/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/runner/_work/app/app/a.spec.ts",
+                    "column": 239,
+                    "line": 4
+                  }
+                },
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1014,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n\n    at /runner/_work/app/app/a.spec.ts:4:239\n    at /runner/_work/app/app/a.spec.ts:4:163",
+                    "location": {
+                      "file": "/runner/_work/app/app/a.spec.ts",
+                      "column": 239,
+                      "line": 4
+                    },
+                    "snippet": "  2 | let n = 0;\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n> 4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n    |                                                                                                                                                                                                                                               ^\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/runner/_work/app/app/a.spec.ts",
+                        "column": 239,
+                        "line": 4
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n\n\n  2 | let n = 0;\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n> 4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n    |                                                                                                                                                                                                                                               ^\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n    at /runner/_work/app/app/a.spec.ts:4:239\n    at /runner/_work/app/app/a.spec.ts:4:163"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "steps": [
+                    {
+                      "title": "check text",
+                      "duration": 540,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  locator('p')\nExpected: \u001b[32m\"bye\"\u001b[39m\nReceived: \u001b[31m\"hi\"\u001b[39m\nTimeout:  500ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" with timeout 500ms\u001b[22m\n\u001b[2m  - waiting for locator('p')\u001b[22m\n\u001b[2m    6 × locator resolved to <p>hi</p>\u001b[22m\n\u001b[2m      - unexpected value \"hi\"\u001b[22m\n\n    at /runner/_work/app/app/a.spec.ts:4:239\n    at /runner/_work/app/app/a.spec.ts:4:163",
+                        "location": {
+                          "file": "/runner/_work/app/app/a.spec.ts",
+                          "column": 239,
+                          "line": 4
+                        },
+                        "snippet": "  2 | let n = 0;\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n> 4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n    |                                                                                                                                                                                                                                               ^\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });"
+                      }
+                    }
+                  ],
+                  "startTime": "2026-11-23T20:18:10.879Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/runner/_work/app/app/test-results/a-fails-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/runner/_work/app/app/test-results/a-fails-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/runner/_work/app/app/test-results/a-fails-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/runner/_work/app/app/a.spec.ts",
+                    "column": 239,
+                    "line": 4
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "4bb17c2992a2b9ccc470-2911c73f9de6b28e2524",
+          "file": "a.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "flaky",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 674,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n    at /runner/_work/app/app/a.spec.ts:5:97",
+                    "location": {
+                      "file": "/runner/_work/app/app/a.spec.ts",
+                      "column": 97,
+                      "line": 5
+                    },
+                    "snippet": "  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n  4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n> 5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n    |                                                                                                 ^\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n  8 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/runner/_work/app/app/a.spec.ts",
+                        "column": 97,
+                        "line": 5
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\n  3 | test('passes', async ({ page }) => { await page.setContent('<p>hi</p>'); await expect(page.locator('p')).toHaveText('hi'); });\n  4 | test('fails', async ({ page }) => { await page.setContent('<p>hi</p>'); page.on('console', () => {}); await page.evaluate(() => console.error('boom from page')); await test.step('check text', async () => { await expect(page.locator('p')).toHaveText('bye', { timeout: 500 }); }); });\n> 5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n    |                                                                                                 ^\n  6 | test.skip('skipped', async () => {});\n  7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n  8 |\n    at /runner/_work/app/app/a.spec.ts:5:97"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-23T20:18:13.213Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/runner/_work/app/app/test-results/a-flaky/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/runner/_work/app/app/test-results/a-flaky/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/runner/_work/app/app/test-results/a-flaky/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/runner/_work/app/app/a.spec.ts",
+                    "column": 97,
+                    "line": 5
+                  }
+                },
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 608,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-11-23T20:18:14.840Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "flaky"
+            }
+          ],
+          "id": "4bb17c2992a2b9ccc470-6d52e61dcec5e47f5ae3",
+          "file": "a.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "skipped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [
+                {
+                  "type": "skip",
+                  "location": {
+                    "file": "/runner/_work/app/app/a.spec.ts",
+                    "line": 6,
+                    "column": 6
+                  }
+                }
+              ],
+              "expectedStatus": "skipped",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-23T20:18:15.718Z",
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "/runner/_work/app/app/a.spec.ts",
+                        "line": 6,
+                        "column": 6
+                      }
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "4bb17c2992a2b9ccc470-5358f09c2f58b4b9cf53",
+          "file": "a.spec.ts",
+          "line": 6,
+          "column": 6
+        },
+        {
+          "title": "net",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 428,
+                  "error": {
+                    "message": "Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:9/\", waiting until \"load\"\u001b[22m\n",
+                    "stack": "Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:9/\", waiting until \"load\"\u001b[22m\n\n    at /runner/_work/app/app/a.spec.ts:7:46",
+                    "location": {
+                      "file": "/runner/_work/app/app/a.spec.ts",
+                      "column": 46,
+                      "line": 7
+                    },
+                    "snippet": "  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n> 7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n    |                                              ^\n  8 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/runner/_work/app/app/a.spec.ts",
+                        "column": 46,
+                        "line": 7
+                      },
+                      "message": "Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:9/\", waiting until \"load\"\u001b[22m\n\n\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n> 7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n    |                                              ^\n  8 |\n    at /runner/_work/app/app/a.spec.ts:7:46"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-23T20:18:15.719Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/runner/_work/app/app/test-results/a-net/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/runner/_work/app/app/test-results/a-net/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/runner/_work/app/app/test-results/a-net/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/runner/_work/app/app/a.spec.ts",
+                    "column": 46,
+                    "line": 7
+                  }
+                },
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1067,
+                  "error": {
+                    "message": "Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:9/\", waiting until \"load\"\u001b[22m\n",
+                    "stack": "Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:9/\", waiting until \"load\"\u001b[22m\n\n    at /runner/_work/app/app/a.spec.ts:7:46",
+                    "location": {
+                      "file": "/runner/_work/app/app/a.spec.ts",
+                      "column": 46,
+                      "line": 7
+                    },
+                    "snippet": "  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n> 7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n    |                                              ^\n  8 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/runner/_work/app/app/a.spec.ts",
+                        "column": 46,
+                        "line": 7
+                      },
+                      "message": "Error: page.goto: net::ERR_UNSAFE_PORT at http://127.0.0.1:9/\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:9/\", waiting until \"load\"\u001b[22m\n\n\n  5 | test('flaky', async ({ page }, info) => { await page.setContent('<p>x</p>'); expect(info.retry).toBe(1); });\n  6 | test.skip('skipped', async () => {});\n> 7 | test('net', async ({ page }) => { await page.goto('http://127.0.0.1:9/'); });\n    |                                              ^\n  8 |\n    at /runner/_work/app/app/a.spec.ts:7:46"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-11-23T20:18:16.903Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/runner/_work/app/app/test-results/a-net-retry1/test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/runner/_work/app/app/test-results/a-net-retry1/error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/runner/_work/app/app/test-results/a-net-retry1/trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/runner/_work/app/app/a.spec.ts",
+                    "column": 46,
+                    "line": 7
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "4bb17c2992a2b9ccc470-22ef85534721f9b82395",
+          "file": "a.spec.ts",
+          "line": 7,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-23T20:18:06.580Z",
+    "duration": 11789.46,
+    "expected": 1,
+    "skipped": 1,
+    "unexpected": 2,
+    "flaky": 1
+  }
+}

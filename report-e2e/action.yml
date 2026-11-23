@@ -1,11 +1,14 @@
 name: Report e2e results
 description: >-
-  Parse a Playwright or vitest JSON report into one row per test and POST it
-  to monitoring-api's e2e_results store, enforcing the skip rule. Fails the
-  job on 0 tests, an unallowed skip, a failed test, OR a failure to report
-  (an unset key, a non-2xx response, or a network error) — a run whose
-  results never arrived must look exactly as broken as a run with a real
-  failing test, never like a quiet green night.
+  Parse a Playwright, vitest or pytest report into one row per test and POST it
+  to monitoring-api's e2e_results store with the run's own record, enforcing
+  the skip rule. Every failure is printed to the log with its error, file and
+  line, its trace and logs are uploaded as an artifact, and the run is classed
+  green/flaky/app/infra/harness with the commits since the last green run.
+  Fails the job on 0 tests, an unallowed skip, a failed test, an error outside
+  any test, OR a failure to report (an unset key, a non-2xx response, or a
+  network error) — a run whose results never arrived must look exactly as
+  broken as a run with a real failing test, never like a quiet green night.
 
 # WHY THIS IS SEPARATE FROM report-job
 # -------------------------------------
@@ -21,9 +24,18 @@ description: >-
 # (passed|failed|flaky|skipped). Changing either is a hadoku_site change
 # first — this action only implements it.
 #
-# PYTEST IS WAVE 4. An unrecognised `runner` fails loudly in parse.mjs rather
-# than silently reporting nothing, because a report full of untranslated test
-# names is worse than a visible gap.
+# An unrecognised `runner` fails loudly in parse.mjs rather than silently
+# reporting nothing, because a report full of untranslated test names is
+# worse than a visible gap.
+#
+# EVIDENCE (hadoku_site docs/planning/e2e-evidence-2026-11-23.md). A red night
+# used to leave a pass/fail count: no error, no commit, no runner, no trace.
+# Reading 30 days of reds took 140 MB of downloaded logs, and one red (a vitest
+# suite with a JSON-only reporter) left no error text anywhere. So every run
+# now leaves: each failure's error, file:line and step timings in the store;
+# an annotation and a log group per failure; the traces, screenshots and logs
+# as an artifact on any red or flaky run; and a run record naming the claw,
+# the tool versions and the commits since the last green run.
 #
 # A FAILED REPORT MUST FAIL THE JOB, DELIBERATELY NOT A WARNING. monitoring-api's
 # digest and the roster read `e2e_results` as the record of what happened; an
@@ -78,6 +90,24 @@ inputs:
     description: monitoring-api's results endpoint.
     required: false
     default: https://hadoku.me/health/api/e2e/results
+  artifacts:
+    description: >-
+      Extra paths (newline-separated, globs allowed) to keep in the evidence
+      artifact beside every failing test's own attachments and the report:
+      server logs, a dev server's output. Missing paths are ignored.
+    required: false
+    default: |
+      e2e-logs/
+  retention-days:
+    description: Days GitHub keeps the evidence artifact.
+    required: false
+    default: '14'
+  github-token:
+    description: >-
+      Reads this repo's commits since the last green run (contents: read is
+      enough). Defaults to the job's own token.
+    required: false
+    default: ${{ github.token }}
   e2e-json:
     description: >-
       Path to e2e.json (relative to the workspace), read for its
@@ -128,8 +158,68 @@ runs:
 
         rows_count=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).rows.length)" \
           "$RUNNER_TEMP/report-e2e-parsed.json")
+        classification=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')).run.classification)" \
+          "$RUNNER_TEMP/report-e2e-parsed.json")
         echo "parsed_count=${rows_count}" >> "$GITHUB_OUTPUT"
-        echo "parsed ${rows_count} test row(s) from ${RUNNER_TEMP}/report-e2e-parsed.json"
+        echo "classification=${classification}" >> "$GITHUB_OUTPUT"
+        echo "parsed ${rows_count} test row(s) from ${RUNNER_TEMP}/report-e2e-parsed.json: ${classification}"
+
+    - name: Name what changed since the last green run
+      if: inputs.post != 'false' && inputs.key != ''
+      shell: bash
+      env:
+        OUT: ${{ runner.temp }}/report-e2e-window.json
+        ENDPOINT: ${{ inputs.endpoint }}
+        SERVICE_KEY: ${{ inputs.key }}
+        APP: ${{ inputs.app }}
+        REF: ${{ github.ref_name }}
+        HEAD_SHA: ${{ github.sha }}
+        REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: node "$GITHUB_ACTION_PATH/window.mjs"
+
+    - name: Collect the failures' evidence
+      id: paths
+      if: steps.parse.outputs.classification != 'green'
+      shell: bash
+      env:
+        REPORT_PATH: ${{ inputs.report }}
+        EXTRA: ${{ inputs.artifacts }}
+      run: |
+        set -euo pipefail
+        # Each failing test's own output directory (trace, screenshot, video,
+        # error-context, the harness's browser log), the report, its sidecar,
+        # and the caller's extra paths. upload-artifact ignores a missing one.
+        node -e "
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { evidence } = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/report-e2e-parsed.json', 'utf8'));
+          const dirs = new Set();
+          for (const e of evidence) for (const a of e.attachments) dirs.add(path.dirname(a.path));
+          const extra = (process.env.EXTRA || '').split('
+').map((l) => l.trim()).filter(Boolean);
+          const all = [...dirs, process.env.REPORT_PATH, process.env.REPORT_PATH + '.errors.json', ...extra];
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/report-e2e-paths.txt', all.join('
+'));
+        "
+        {
+          echo 'list<<REPORT_E2E_PATHS_EOF'
+          cat "$RUNNER_TEMP/report-e2e-paths.txt"
+          echo
+          echo 'REPORT_E2E_PATHS_EOF'
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Keep the traces, screenshots and logs
+      id: upload
+      if: steps.parse.outputs.classification != 'green'
+      # Losing the artifact must not cost the results POST below.
+      continue-on-error: true
+      uses: actions/upload-artifact@v6
+      with:
+        name: e2e-evidence-${{ inputs.app }}-${{ github.run_attempt }}
+        path: ${{ steps.paths.outputs.list }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: warn
 
     - name: POST the rows to monitoring-api (always, even on a failing run)
       id: post
@@ -141,6 +231,7 @@ runs:
         APP: ${{ inputs.app }}
         REPO: ${{ inputs.repo }}
         GH_RUN_ID: ${{ inputs.gh-run-id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
         NIGHTLY_RUN_ID: ${{ inputs.nightly-run-id }}
       run: |
         set -uo pipefail
@@ -190,7 +281,7 @@ runs:
             const fs = require('node:fs');
             const chunks = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
             const results = chunks[Number(process.argv[2])];
-            const body = { gh_run_id: process.env.GH_RUN_ID, repo: process.env.REPO, app: process.env.APP, results };
+            const body = { gh_run_id: process.env.GH_RUN_ID, run_attempt: Number(process.env.RUN_ATTEMPT || 1), repo: process.env.REPO, app: process.env.APP, results };
             if (process.env.NIGHTLY_RUN_ID) body.nightly_run_id = process.env.NIGHTLY_RUN_ID;
             process.stdout.write(JSON.stringify(body));
           " "$RUNNER_TEMP/report-e2e-chunks.json" "$i")
@@ -236,6 +327,29 @@ runs:
           " "${failed_chunks[@]}")
         fi
         write_post_failures
+
+    - name: Print every failure, record the run
+      if: always() && steps.parse.outcome == 'success'
+      shell: bash
+      env:
+        PARSED: ${{ runner.temp }}/report-e2e-parsed.json
+        WINDOW: ${{ runner.temp }}/report-e2e-window.json
+        POST_FAILURES: ${{ runner.temp }}/report-e2e-post-failures.json
+        POST: ${{ inputs.post }}
+        SERVICE_KEY: ${{ inputs.key }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        APP: ${{ inputs.app }}
+        REPO: ${{ inputs.repo }}
+        RUNNER: ${{ inputs.runner }}
+        GH_RUN_ID: ${{ inputs.gh-run-id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        NIGHTLY_RUN_ID: ${{ inputs.nightly-run-id }}
+        EVENT: ${{ github.event_name }}
+        REF: ${{ github.ref_name }}
+        HEAD_SHA: ${{ github.sha }}
+        HOST: ${{ runner.name }}
+        ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+      run: node "$GITHUB_ACTION_PATH/evidence.mjs"
 
     - name: Fail on 0 tests, an unallowed skip, a failed test, or a failed POST
       shell: bash

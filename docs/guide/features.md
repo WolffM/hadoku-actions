@@ -88,9 +88,31 @@ one of a real 80-entry allow-list with no indication why (`9771b81`). Today a
 present `e2eSkipAllow` of any other shape fails loudly instead, naming the
 bad key.
 
-**Fails the job on four things**, not just a failing test: zero tests ran,
-an unallowed skip, a failed test, or the report failing to reach the store
-at all (an unset key, a non-2xx response, or a network error). Unlike
+**Every run leaves its evidence** (2026-11-23). Reading a month of red
+nightlies took 140 MB of downloaded logs, because a red run stored a count
+and nothing else, and one of them (a vitest suite with only the JSON reporter)
+left no error text anywhere. Now each failure's error, `file:line`, class
+(`infra` or `app`, [`report-e2e/classify.mjs`](../../report-e2e/classify.mjs),
+deliberately narrow: a loopback connection refused is the app's own server)
+and step timings go to the store; each is annotated and printed in the log;
+its trace, screenshot and the suite's logs are uploaded as an artifact; and a
+run record names the claw, the tool versions, the class of the whole run and
+the commits since the app's last green run ([`report-e2e/window.mjs`](../../report-e2e/window.mjs)),
+with the `@wolffm/*` version bumps among them. A run that crashed before
+writing its report used to exit before posting and read as a night it did not
+run; it is now a `harness` run with the reason.
+
+vitest 4.1's JSON report keeps no message for a `beforeAll` that throws: the
+file is `failed`, its `message` is empty and every test reads `skipped`
+(measured, `fixtures/vitest-hook-sidecar-report.json`). `parse.mjs` reads that
+shape as a harness failure on its own, and takes the message from a
+`<report>.errors.json` sidecar that `@wolffm/e2e-harness`'s vitest reporter
+writes.
+
+**Fails the job on five things**, not just a failing test: zero tests ran,
+an unallowed skip, a failed test, an error outside any test, or the report
+failing to reach the store at all (an unset key, a non-2xx response, or a
+network error). Unlike
 `report-job`, this action deliberately *does* gate CI on the store's own
 availability, because a report that silently never arrived reads as a
 quiet night rather than a red one.

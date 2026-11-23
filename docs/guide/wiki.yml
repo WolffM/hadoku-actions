@@ -7,7 +7,7 @@ features:
   - name: report-job
     summary: 'Posts a workflow job outcome to the execution log, so a red run pages without waiting on a daily digest.'
   - name: report-e2e
-    summary: 'Parses a Playwright, vitest or pytest report into per-test rows, enforces a skip-reason rule, and posts them to the nightly e2e store.'
+    summary: 'Parses a Playwright, vitest or pytest report into per-test rows, enforces a skip-reason rule, posts them to the nightly e2e store, and leaves every failure''s evidence: its error and location in the log, its trace as an artifact, and a run record with the commits since the last green run.'
   - name: setup-pnpm
     summary: 'Installs Node and the pinned pnpm, asserts the registry credential, and (with vault-fetch) can read any vault secret at job time.'
     anchor: setup-pnpm-and-vault-fetch

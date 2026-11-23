@@ -16,7 +16,7 @@ reference.
 | Action | What it does |
 | --- | --- |
 | [`report-job`](report-job/action.yml) | POSTs a job's outcome to the fleet execution log, so a red run says so itself instead of waiting for the daily digest. |
-| [`report-e2e`](report-e2e/action.yml) | Parses a Playwright or vitest JSON report into per-test rows, enforces the skip rule, and POSTs them to the nightly fleet e2e store. |
+| [`report-e2e`](report-e2e/action.yml) | Parses a Playwright, vitest or pytest report into per-test rows with each failure's error, location and steps, enforces the skip rule, prints and annotates every failure, uploads its traces, and records the run (environment, class, commits since the last green run) in the fleet e2e store. |
 | [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
 | [`setup-python-venv`](setup-python-venv/action.yml) | setup-python on the fleet's toolcache, then a throwaway venv under `RUNNER_TEMP` — so CI stops installing into an interpreter the whole box shares. |
 | [`repo-action`](repo-action/action.yml) | Asks mgmt-api, with this repo's own service key, to promote a `bot/*` branch onto the default branch or to notify hadoku_site. What every child repo used `HADOKU_SITE_TOKEN` for. |
@@ -122,6 +122,30 @@ A workspace's `e2e.json` may declare `e2eSkipAllow`, an object map of
 title with no entry, or an entry whose value is not a non-empty string,
 fails the skip rule. See [features.md#report-e2e](docs/guide/features.md#report-e2e)
 for why that's the only shape it takes.
+
+Every run also leaves its evidence, with nothing to configure:
+
+- **In the log**: an annotation on each failure's file and line, and a
+  collapsed group per failed or flaky test with its whole error, its step
+  timings and where its trace is. A suite whose reporter prints nothing (vitest
+  with only `--reporter=json`) still shows why it failed.
+- **As an artifact** (`e2e-evidence-<app>-<attempt>`, `retention-days`, default
+  14) on any run that is not green: each failing test's output directory
+  (trace, screenshot, video, error-context), the report, and the `artifacts`
+  paths (default `e2e-logs/`).
+- **In the store**: each row's `error`, `error_location`, `failure_class`
+  (`infra | app`, [`classify.mjs`](report-e2e/classify.mjs)) and `steps`, and
+  one run record (`POST …/e2e/runs`): the claw, the tool and Node versions, the
+  report's status, the run's class (`green | flaky | app | infra | harness`),
+  the artifact link, and the commits and package version changes since the
+  app's last green run on the branch, read with `github-token` (default the
+  job's own; `contents: read` is enough).
+
+A run whose report is missing or unreadable, or whose suite failed outside any
+test (a crashed `globalSetup`, a `beforeAll` that threw), is posted as a
+`harness` run with the reason, not dropped. Playwright failures with no trace
+attached are counted (`evidence_missing`) and warned on; the
+`@wolffm/e2e-harness` Playwright preset keeps them.
 
 `gh-run-id` and `repo` default to the calling run's own id and `owner/name`;
 override them only for a caller that posts on behalf of another run.

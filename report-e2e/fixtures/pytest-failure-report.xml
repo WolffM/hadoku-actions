@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="1" skipped="0" tests="3" time="0.036" timestamp="2026-11-23T12:32:06.836425-08:00" hostname="hokon"><testcase classname="tests.test_cards" name="test_ok" time="0.000" /><testcase classname="tests.test_cards" name="test_menu_not_clipped" time="0.000"><failure message="AssertionError: Move… menu is covered or clipped&#10;assert 812 &lt;= 800">def test_menu_not_clipped():
+        menu_bottom, viewport = 812, 800
+&gt;       assert menu_bottom &lt;= viewport, "Move… menu is covered or clipped"
+E       AssertionError: Move… menu is covered or clipped
+E       assert 812 &lt;= 800
+
+tests/test_cards.py:12: AssertionError</failure></testcase><testcase classname="tests.test_cards" name="test_setup_error" time="0.000"><error message="failed on setup with &quot;ConnectionError: dial tcp hadoku.me:443: i/o timeout ETIMEDOUT&quot;">@pytest.fixture
+    def broken():
+&gt;       raise ConnectionError("dial tcp hadoku.me:443: i/o timeout ETIMEDOUT")
+E       ConnectionError: dial tcp hadoku.me:443: i/o timeout ETIMEDOUT
+
+tests/test_cards.py:5: ConnectionError</error></testcase></testsuite></testsuites>

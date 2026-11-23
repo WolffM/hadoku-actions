@@ -253,9 +253,13 @@ jobs:
 
   report-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The change-window case compares HEAD with HEAD~2 through the
+          # GitHub API, and reads that sha from the local history.
+          fetch-depth: 3
 
       # A stand-in monitoring-api, same shape as fake-broker.py: this repo is
       # public and hosted, and holds no real service key to hit the live
@@ -263,7 +267,9 @@ jobs:
       # below can check rows actually arrived, not just that curl ran.
       - name: start a stand-in results store
         run: |
-          python3 .github/selftest/fake-e2e-store.py ok 5300 &
+          # The ok store says HEAD~2 was the last green run, so the change
+          # window below has exactly two commits to name.
+          LAST_GREEN_SHA=$(git rev-parse HEAD~2) python3 .github/selftest/fake-e2e-store.py ok 5300 &
           python3 .github/selftest/fake-e2e-store.py deny 5301 &
           python3 .github/selftest/fake-e2e-store.py hang 5302 &
           for p in 5300 5301 5302; do
@@ -620,6 +626,144 @@ jobs:
             exit 1
           fi
           echo "failed on the store refusal, as it must"
+
+      # EVIDENCE (hadoku_site docs/planning/e2e-evidence-2026-11-23.md). A real
+      # Playwright report (a failure with a step, a flaky retry, a network
+      # error, a skip), its paths moved under this workspace so the locations
+      # come out repo-relative and the attachments exist to be uploaded.
+      - name: lay out the evidence fixture as a real run would
+        run: |
+          root="$GITHUB_WORKSPACE/report-e2e/fixtures/pw"
+          mkdir -p tmp-evidence
+          sed "s#/runner/_work/app/app#$root#g" report-e2e/fixtures/playwright-evidence-report.json > tmp-evidence/report.json
+          for d in a-fails a-fails-retry1 a-flaky a-net a-net-retry1; do
+            mkdir -p "$root/test-results/$d"
+            echo trace > "$root/test-results/$d/trace.zip"
+            echo png > "$root/test-results/$d/test-failed-1.png"
+            echo md > "$root/test-results/$d/error-context.md"
+          done
+      - name: playwright evidence — fails, and records why
+        id: evidence
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: tmp-evidence/report.json
+          runner: playwright
+          app: selftest-evidence
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/health/api/e2e/results
+      - name: assert the rows, the run record, the artifact and the change window arrived
+        env:
+          LAST_GREEN_SHA_WANT: ${{ github.sha }}
+        run: |
+          if [ "${{ steps.evidence.outcome }}" != "failure" ]; then
+            echo "::error::a report with two failed tests did not fail the job"; exit 1
+          fi
+          python3 - "$(git rev-parse HEAD~2)" <<'PY'
+          import json, sys
+          base = sys.argv[1]
+          posts = [json.loads(l) for l in open('/tmp/fake-e2e-store-5300.jsonl')]
+          mine = [p for p in posts if p['body'].get('app') == 'selftest-evidence']
+          results = [p['body'] for p in mine if p['path'].endswith('/results')]
+          runs = [p['body'] for p in mine if p['path'].endswith('/runs')]
+          assert len(results) == 1 and len(runs) == 1, (len(results), len(runs))
+          rows = {r['test_name']: r for r in results[0]['results']}
+          f = rows['fails']
+          assert f['error_location'] == 'report-e2e/fixtures/pw/a.spec.ts:4', f['error_location']
+          assert f['error'].startswith('Error: expect(locator).toHaveText(expected) failed'), f['error']
+          assert '\x1b' not in f['error'], 'ANSI codes reached the store'
+          assert f['failure_class'] == 'app' and f['steps'] == [['check text', 540, True]], f
+          assert rows['flaky']['outcome'] == 'flaky' and rows['flaky']['error'], rows['flaky']
+          assert results[0]['run_attempt'] == 1
+          r = runs[0]
+          assert r['classification'] == 'app' and r['report_status'] == 'ok', r
+          assert (r['passed'], r['failed'], r['flaky'], r['skipped']) == (1, 2, 1, 1), r
+          assert r['tool_version'] == '1.62.1' and r['test_wall_ms'] == 11789, r
+          assert r['evidence_missing'] == 0 and r['host'] and r['node_version'].startswith('v'), r
+          assert (r['artifact_url'] or '').startswith('https://'), r['artifact_url']
+          assert r['base_sha'] == base and r['commits_since_base'] == 2, (r['base_sha'], r['commits_since_base'])
+          assert len(r['commits']) == 2 and all(c['kind'] in ('deps', 'code') for c in r['commits']), r['commits']
+          print('evidence recorded:', r['classification'], r['artifact_url'], [c['subject'] for c in r['commits']])
+          PY
+
+      # A suite that crashed before writing its report used to exit before
+      # the POST and leave no row at all: "did not run", not red.
+      - name: no report at all — fails, and is recorded as a harness run
+        id: missing
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: tmp-evidence/never-written.json
+          runner: playwright
+          app: selftest-missing
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/health/api/e2e/results
+      - name: assert the harness run was recorded
+        run: |
+          if [ "${{ steps.missing.outcome }}" != "failure" ]; then
+            echo "::error::a missing report did not fail the job"; exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          runs = [json.loads(l)['body'] for l in open('/tmp/fake-e2e-store-5300.jsonl')]
+          r = [b for b in runs if b.get('app') == 'selftest-missing' and 'classification' in b]
+          assert len(r) == 1 and r[0]['classification'] == 'harness' and r[0]['report_status'] == 'missing', r
+          print('missing report recorded as', r[0]['classification'])
+          PY
+
+      # vitest 4.1's JSON report leaves a throwing beforeAll's message EMPTY and
+      # its tests 'skipped' (hadoku-merchant, 2026-11-22: fifteen "unallowed
+      # skips" and no error anywhere). The shape alone must make it a harness
+      # failure, and the harness preset's sidecar supplies the message.
+      - name: a vitest hook failure — fails as harness, with the sidecar's message
+        id: hook
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/vitest-hook-sidecar-report.json
+          runner: vitest
+          app: selftest-hook
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/health/api/e2e/results
+      - name: assert the hook failure was recorded as harness
+        run: |
+          if [ "${{ steps.hook.outcome }}" != "failure" ]; then
+            echo "::error::a vitest hook failure did not fail the job"; exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          runs = [json.loads(l)['body'] for l in open('/tmp/fake-e2e-store-5300.jsonl')]
+          r = [b for b in runs if b.get('app') == 'selftest-hook' and 'classification' in b]
+          assert len(r) == 1 and r[0]['classification'] == 'harness', r
+          print('hook failure recorded as', r[0]['classification'])
+          PY
+
+      # A real pytest --junitxml with an assertion failure and a fixture that
+      # cannot reach a remote host: both located, the second classed infra.
+      - name: pytest failures — located and classified
+        id: pyfail
+        continue-on-error: true
+        uses: ./report-e2e
+        with:
+          report: report-e2e/fixtures/pytest-failure-report.xml
+          runner: pytest
+          app: selftest-pyfail
+          key: selftest-key
+          endpoint: http://127.0.0.1:5300/health/api/e2e/results
+      - name: assert both pytest failures were located and classified
+        run: |
+          if [ "${{ steps.pyfail.outcome }}" != "failure" ]; then
+            echo "::error::two failed pytest tests did not fail the job"; exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          bodies = [json.loads(l)['body'] for l in open('/tmp/fake-e2e-store-5300.jsonl')]
+          rows = {r['test_name']: r for b in bodies if b.get('app') == 'selftest-pyfail' for r in b.get('results', [])}
+          assert rows['test_menu_not_clipped']['error_location'] == 'tests/test_cards.py:12', rows['test_menu_not_clipped']
+          assert rows['test_menu_not_clipped']['failure_class'] == 'app'
+          assert rows['test_setup_error']['failure_class'] == 'infra', rows['test_setup_error']
+          print('pytest failures located and classified')
+          PY
 
   setup-pnpm:
     runs-on: ubuntu-latest
