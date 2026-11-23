@@ -196,11 +196,9 @@ runs:
           const { evidence } = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/report-e2e-parsed.json', 'utf8'));
           const dirs = new Set();
           for (const e of evidence) for (const a of e.attachments) dirs.add(path.dirname(a.path));
-          const extra = (process.env.EXTRA || '').split('
-').map((l) => l.trim()).filter(Boolean);
+          const extra = (process.env.EXTRA || '').split('\n').map((l) => l.trim()).filter(Boolean);
           const all = [...dirs, process.env.REPORT_PATH, process.env.REPORT_PATH + '.errors.json', ...extra];
-          fs.writeFileSync(process.env.RUNNER_TEMP + '/report-e2e-paths.txt', all.join('
-'));
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/report-e2e-paths.txt', all.join('\n'));
         "
         {
           echo 'list<<REPORT_E2E_PATHS_EOF'
