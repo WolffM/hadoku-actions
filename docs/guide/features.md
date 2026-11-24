@@ -66,13 +66,14 @@ attempts, duration_ms}`, `outcome` one of `passed | failed | flaky | skipped`
 — and POSTs the rows, chunked at 2,000 per request, to the nightly e2e store.
 `runner` must be `playwright`, `vitest` or `pytest`; anything else fails
 loudly. Playwright and vitest read a JSON reporter file; pytest reads a plain
-`--junitxml` file through a small hand-written regex parser
-([`report-e2e/parse.mjs`](../../report-e2e/parse.mjs)), because this is a
-composite action with no `package.json` to install an XML library into.
+`--junitxml` file through a small hand-written tokenizer
+([`report-tests/parsers.mjs`](../../report-tests/parsers.mjs), shared with
+report-tests), because this is a composite action with no `package.json` to
+install an XML library into.
 
 A retried pytest test (`pytest-rerunfailures`) has no dedicated "rerun" tag in
 JUnit XML — a retried attempt lands as an *empty* `<testcase>` under the same
-name as the one that follows it. `parse.mjs` groups consecutive same-named
+name as the one that follows it. The parser groups consecutive same-named
 `<testcase>` elements and reads the outcome off the last one: group size 1 is
 a normal result, a group ending in failure is still `failed`, and a group
 ending clean after more than one entry is `flaky`. That mapping was checked
@@ -104,7 +105,7 @@ run; it is now a `harness` run with the reason.
 
 vitest 4.1's JSON report keeps no message for a `beforeAll` that throws: the
 file is `failed`, its `message` is empty and every test reads `skipped`
-(measured, `fixtures/vitest-hook-sidecar-report.json`). `parse.mjs` reads that
+(measured, `fixtures/vitest-hook-sidecar-report.json`). The parser reads that
 shape as a harness failure on its own, and takes the message from a
 `<report>.errors.json` sidecar that `@wolffm/e2e-harness`'s vitest reporter
 writes.
@@ -121,6 +122,43 @@ quiet night rather than a red one.
 per-push/PR gate that is not the nightly run of record (and may have no key at
 all, e.g. a fork PR). `nightly-run-id` only makes sense for a run dispatched by
 the fleet's own nightly workflow.
+
+### report-tests
+
+[`report-tests/action.yml`](../../report-tests/action.yml) is the one reader
+for every test suite in the fleet, unit and e2e alike, so tests on six
+runners land in one shape and can be compared across repos. Until it, a
+test that had never failed, or one that cost a runner-hour a day, could only
+be found by downloading job logs: on 2026-11-23 only 7 of 87 repos stored any
+per-test result, all of it e2e.
+
+One job can write several reports (the platform repo's tests run vitest
+and node:test in the same step), so `reports` takes one `<runner> <path>` per
+line. They become one document with a row per test: its runner, spec, name,
+outcome, attempts and duration, and for a red one its error, `file:line` and
+class. The parsers are [`report-tests/parsers.mjs`](../../report-tests/parsers.mjs),
+which report-e2e calls too:
+
+- **jest** writes the same JSON shape vitest copies; it says `pending` where
+  vitest says `skipped`.
+- **node:test**'s JUnit reporter nests a `<testsuite>` per `describe`, so a
+  test's name is its describe chain, and its spec is the `file` attribute. It
+  escapes `<` but not `>` inside an attribute, so tags are matched
+  quote-aware. A failing `before` hook says only "failed running before
+  hook"; the real error is the `cause:` in its text, which the parser appends.
+- **cargo** reports through cargo-nextest's JUnit output (`junit`): libtest's
+  own JSON and JUnit formats are nightly-only.
+
+The fixtures are real runner output (node:test 24, jest 30), with only the
+checkout path rewritten.
+
+**Dry run** (Phase 0 of the fleet's unified test reporting plan): it writes the document,
+prints counts, the ten slowest tests and every failure, and posts nothing.
+Every problem is a warning and the job is never failed by it: the test step's
+own exit code already does that, and a new check starts quiet. Run over real
+reports from three repos on 2026-11-24 (vitest, node:test and pytest; 779,
+101 and 4,832 tests), every test parsed, no id repeated within a run, and the
+largest document was 1.4 MB, 78 KB gzipped.
 
 ## setup-pnpm and vault-fetch
 

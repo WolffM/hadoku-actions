@@ -17,6 +17,7 @@ reference.
 | --- | --- |
 | [`report-job`](report-job/action.yml) | POSTs a job's outcome to the fleet execution log, so a red run says so itself instead of waiting for the daily digest. |
 | [`report-e2e`](report-e2e/action.yml) | Parses a Playwright, vitest or pytest report into per-test rows with each failure's error, location and steps, enforces the skip rule, prints and annotates every failure, uploads its traces, and records the run (environment, class, commits since the last green run) in the fleet e2e store. |
+| [`report-tests`](report-tests/action.yml) | Reads every test report a job wrote (Playwright, vitest, jest, pytest, node:test, any JUnit XML) into one per-test document and prints it: counts, slowest tests, failures. Dry run: posts nothing, never fails the job. |
 | [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
 | [`setup-python-venv`](setup-python-venv/action.yml) | setup-python on the fleet's toolcache, then a throwaway venv under `RUNNER_TEMP` — so CI stops installing into an interpreter the whole box shares. |
 | [`repo-action`](repo-action/action.yml) | Asks mgmt-api, with this repo's own service key, to promote a `bot/*` branch onto the default branch or to notify hadoku_site. What every child repo used `HADOKU_SITE_TOKEN` for. |
@@ -82,6 +83,31 @@ entries are all posted after the last unit finished, so a start time would
 measure until the end of the job. A start time on an entry is refused. An
 entry with no `outcome` is a unit the job never reached and is not reported.
 A malformed one fails the step.
+
+## `report-tests`
+
+```yaml
+- name: Test
+  run: |
+    pnpm vitest run --reporter=default --reporter=json --outputFile.json=vitest.json
+    node --test --test-reporter=spec --test-reporter-destination=stdout \
+      --test-reporter=junit --test-reporter-destination=node-test.xml
+
+- name: Report the tests
+  if: always()
+  uses: WolffM/hadoku-actions/report-tests@v1
+  with:
+    suite: unit
+    kind: unit                  # or e2e
+    reports: |
+      vitest vitest.json
+      node-test node-test.xml
+```
+
+Runners: `playwright` (`--reporter=json`), `vitest` and `jest` (their JSON
+reporters), `pytest` (`--junitxml`), `node-test` (`--test-reporter=junit`) and
+`junit` (any other JUnit XML: cargo-nextest's `[profile.ci.junit]`). Keep the
+runner's console reporter beside the file one, so the log still reads.
 
 ## `report-e2e`
 

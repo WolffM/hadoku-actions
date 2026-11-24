@@ -1,0 +1,194 @@
+{
+ "numFailedTestSuites": 3,
+ "numFailedTests": 3,
+ "numPassedTestSuites": 0,
+ "numPassedTests": 2,
+ "numPendingTestSuites": 0,
+ "numPendingTests": 1,
+ "numRuntimeErrorTestSuites": 1,
+ "numTodoTests": 1,
+ "numTotalTestSuites": 3,
+ "numTotalTests": 7,
+ "openHandles": [],
+ "snapshot": {
+  "added": 0,
+  "didUpdate": false,
+  "failure": false,
+  "filesAdded": 0,
+  "filesRemoved": 0,
+  "filesRemovedList": [],
+  "filesUnmatched": 0,
+  "filesUpdated": 0,
+  "matched": 0,
+  "total": 0,
+  "unchecked": 0,
+  "uncheckedKeysByFile": [],
+  "unmatched": 0,
+  "updated": 0
+ },
+ "startTime": 1795560834716,
+ "success": false,
+ "testResults": [
+  {
+   "assertionResults": [
+    {
+     "ancestorTitles": [],
+     "duration": 4,
+     "failing": false,
+     "failureDetails": [],
+     "failureMessages": [],
+     "fullName": "top-level passes",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 1,
+     "retryReasons": [],
+     "startAt": 1795560835615,
+     "status": "passed",
+     "title": "top-level passes"
+    },
+    {
+     "ancestorTitles": [],
+     "duration": 4,
+     "failing": false,
+     "failureDetails": [
+      {
+       "matcherResult": {
+        "actual": 2,
+        "expected": 3,
+        "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: 3\nReceived: 2",
+        "name": "toBe",
+        "pass": false
+       }
+      }
+     ],
+     "failureMessages": [
+      "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 3\nReceived: 2\n    at Object.toBe (/home/runner/work/app/app/sample.test.js:2:45)\n    at Promise.finally.completed (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1557:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1497:10)\n    at _callCircusTest (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1007:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:947:3)\n    at /home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:849:7\n    at _runTestsForDescribeBlock (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:862:11)\n    at run (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:761:3)\n    at runAndTransformResultsToJestFormat (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1918:21)\n    at jestAdapter (/home/runner/work/app/app/node_modules/jest-circus/build/runner.js:101:19)\n    at runTestInternal (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:275:16)\n    at runTest (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:343:7)\n    at Object.worker (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:497:12)"
+     ],
+     "fullName": "top-level fails",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryReasons": [],
+     "startAt": 1795560835620,
+     "status": "failed",
+     "title": "top-level fails"
+    },
+    {
+     "ancestorTitles": [],
+     "duration": null,
+     "failing": false,
+     "failureDetails": [],
+     "failureMessages": [],
+     "fullName": "top-level skipped",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryReasons": [],
+     "startAt": 1795560835627,
+     "status": "pending",
+     "title": "top-level skipped"
+    },
+    {
+     "ancestorTitles": [],
+     "duration": null,
+     "failing": false,
+     "failureDetails": [],
+     "failureMessages": [],
+     "fullName": "top-level todo",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryReasons": [],
+     "startAt": 1795560835627,
+     "status": "todo",
+     "title": "top-level todo"
+    },
+    {
+     "ancestorTitles": [
+      "a suite"
+     ],
+     "duration": 0,
+     "failing": false,
+     "failureDetails": [],
+     "failureMessages": [],
+     "fullName": "a suite nested passes",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryReasons": [],
+     "startAt": 1795560835627,
+     "status": "passed",
+     "title": "nested passes"
+    },
+    {
+     "ancestorTitles": [
+      "a suite",
+      "inner"
+     ],
+     "duration": 0,
+     "failing": false,
+     "failureDetails": [
+      {}
+     ],
+     "failureMessages": [
+      "Error: boom\n    at Object.<anonymous> (/home/runner/work/app/app/sample.test.js:8:38)\n    at Promise.finally.completed (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1557:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1497:10)\n    at _callCircusTest (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1007:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTest (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:947:3)\n    at /home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:849:7\n    at _runTestsForDescribeBlock (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:862:11)\n    at _runTestsForDescribeBlock (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:857:11)\n    at _runTestsForDescribeBlock (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:857:11)\n    at run (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:761:3)\n    at runAndTransformResultsToJestFormat (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1918:21)\n    at jestAdapter (/home/runner/work/app/app/node_modules/jest-circus/build/runner.js:101:19)\n    at runTestInternal (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:275:16)\n    at runTest (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:343:7)\n    at Object.worker (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:497:12)"
+     ],
+     "fullName": "a suite inner deep fails",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryReasons": [],
+     "startAt": 1795560835627,
+     "status": "failed",
+     "title": "deep fails"
+    }
+   ],
+   "endTime": 1795560835639,
+   "message": "  ● top-level fails\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 3\n    Received: 2\n\n      1 | test('top-level passes', () => expect(1 + 1).toBe(2));\n    > 2 | test('top-level fails', () => expect(1 + 1).toBe(3));\n        |                                             ^\n      3 | test.skip('top-level skipped', () => {});\n      4 | test.todo('top-level todo');\n      5 | describe('a suite', () => {\n\n      at Object.toBe (sample.test.js:2:45)\n\n  ● a suite › inner › deep fails\n\n    boom\n\n       6 |   test('nested passes', () => {});\n       7 |   describe('inner', () => {\n    >  8 |     test('deep fails', () => { throw new Error('boom'); });\n         |                                      ^\n       9 |   });\n      10 | });\n      11 |\n\n      at Object.<anonymous> (sample.test.js:8:38)\n",
+   "name": "/home/runner/work/app/app/sample.test.js",
+   "startTime": 1795560835099,
+   "status": "failed",
+   "summary": ""
+  },
+  {
+   "assertionResults": [
+    {
+     "ancestorTitles": [],
+     "duration": 10,
+     "failing": false,
+     "failureDetails": [
+      {}
+     ],
+     "failureMessages": [
+      "Error: setup could not reach its backend\n    at Object.<anonymous> (/home/runner/work/app/app/second.test.js:1:25)\n    at Promise.finally.completed (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1557:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1497:10)\n    at _callCircusHook (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:976:40)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at _runTestsForDescribeBlock (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:800:7)\n    at run (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:761:3)\n    at runAndTransformResultsToJestFormat (/home/runner/work/app/app/node_modules/jest-circus/build/jestAdapterInit.js:1918:21)\n    at jestAdapter (/home/runner/work/app/app/node_modules/jest-circus/build/runner.js:101:19)\n    at runTestInternal (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:275:16)\n    at runTest (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:343:7)\n    at Object.worker (/home/runner/work/app/app/node_modules/jest-runner/build/testWorker.js:497:12)"
+     ],
+     "fullName": "never runs",
+     "invocations": 1,
+     "location": null,
+     "numPassingAsserts": 0,
+     "retryReasons": [],
+     "startAt": 1795560835621,
+     "status": "failed",
+     "title": "never runs"
+    }
+   ],
+   "endTime": 1795560835662,
+   "message": "  ● never runs\n\n    setup could not reach its backend\n\n    > 1 | beforeAll(() => { throw new Error('setup could not reach its backend'); });\n        |                         ^\n      2 | test('never runs', () => {});\n      3 |\n\n      at Object.<anonymous> (second.test.js:1:25)\n",
+   "name": "/home/runner/work/app/app/second.test.js",
+   "startTime": 1795560835207,
+   "status": "failed",
+   "summary": ""
+  },
+  {
+   "assertionResults": [],
+   "coverage": {},
+   "endTime": 1795560836160,
+   "message": "  ● Test suite failed to run\n\n    Jest encountered an unexpected token\n\n    Jest failed to parse a file. This happens e.g. when your code or its dependencies use non-standard JavaScript syntax, or when Jest is not configured to support such syntax.\n\n    Out of the box Jest supports Babel, which will be used to transform your files into valid JS based on your Babel configuration.\n\n    By default \"node_modules\" folder is ignored by transformers.\n\n    Here's what you can do:\n     • If you are trying to use ECMAScript Modules, see https://jestjs.io/docs/ecmascript-modules for how to enable it.\n     • If you are trying to use TypeScript, see https://jestjs.io/docs/getting-started#using-typescript\n     • To have some of your \"node_modules\" files transformed, you can specify a custom \"transformIgnorePatterns\" in your config.\n     • If you need a custom transformation, specify a \"transform\" option in your config.\n     • If you simply want to mock your non-JS modules (e.g. binary assets) you can stub them out with the \"moduleNameMapper\" config option.\n\n    You'll find more details and examples of these config options in the docs:\n    https://jestjs.io/docs/configuration\n    For information about custom transformations, see:\n    https://jestjs.io/docs/code-transformation\n\n    Details:\n\n    /home/runner/work/app/app/broken.test.js:1\n    import { nope } from './does-not-exist';\n    ^^^^^^\n\n    SyntaxError: Cannot use import statement outside a module\n\n      at Runtime.createScriptFromCode (node_modules/jest-runtime/build/index.js:1318:40)\n",
+   "name": "/home/runner/work/app/app/broken.test.js",
+   "startTime": 1795560836160,
+   "status": "failed",
+   "summary": ""
+  }
+ ],
+ "wasInterrupted": false
+}

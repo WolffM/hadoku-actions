@@ -1,0 +1,52 @@
+name: Report tests
+description: >-
+  Read every test report a job wrote (Playwright, vitest, jest, pytest,
+  node:test, any JUnit XML) into one per-test document and print it. Phase 0:
+  a dry run that posts nothing and never fails the job.
+
+# WHY
+# ---
+# The fleet's tests ran on six runners with no common record: a test that has
+# never failed, or one that costs a runner-hour a day, could not be found
+# without downloading job logs. This action is the one reader every repo's test
+# step calls, unit and e2e alike, so every suite lands in the same shape
+# (hadoku_site docs/planning/unified-test-reporting-2026-11-23.md).
+#
+# Phase 0 (now): parse, print, write `report-tests.json`, warn on anything it
+# could not read. Phase 1 posts that document to the fleet test store. Until
+# its warnings across the fleet have been read, it never fails a job: the test
+# step's own exit code already does that.
+#
+# `if: always()` at the call site, so a red run is read too.
+
+inputs:
+  reports:
+    description: >-
+      One report per line, `<runner> <path>`. runner: playwright, vitest, jest,
+      pytest, node-test or junit (cargo-nextest and any other JUnit XML).
+    required: true
+  suite:
+    description: The suite's stable name in this repo (default the job id).
+    default: ''
+  kind:
+    description: unit or e2e.
+    default: unit
+
+outputs:
+  document:
+    description: Path of the normalised document.
+    value: ${{ steps.parse.outputs.document }}
+
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      env:
+        REPORTS: ${{ inputs.reports }}
+        SUITE: ${{ inputs.suite }}
+        KIND: ${{ inputs.kind }}
+        OUT: ${{ runner.temp }}/report-tests.json
+      run: |
+        node "$GITHUB_ACTION_PATH/cli.mjs" || echo "::warning title=report-tests::the reader itself crashed (exit $?)"
+        echo "document=$OUT" >> "$GITHUB_OUTPUT"

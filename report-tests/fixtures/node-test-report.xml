@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testcase name="top-level passes" time="0.000639" classname="test" file="/home/runner/work/app/app/sample.test.mjs"/>
+	<testcase name="top-level fails" time="0.000777" classname="test" file="/home/runner/work/app/app/sample.test.mjs" failure="Expected values to be strictly equal:&#10;&#10;2 !== 3&#10;">
+		<failure type="testCodeFailure" message="Expected values to be strictly equal:&#10;&#10;2 !== 3">
+[Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:
+
+2 !== 3
+] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  2 !== 3
+  
+      at TestContext.&lt;anonymous> (file:///home/runner/work/app/app/sample.test.mjs:4:38)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+}
+		</failure>
+	</testcase>
+	<testcase name="top-level skipped" time="0.001302" classname="test" file="/home/runner/work/app/app/sample.test.mjs">
+		<skipped type="skipped" message="not on this host"/>
+	</testcase>
+	<testcase name="top-level todo" time="0.000112" classname="test" file="/home/runner/work/app/app/sample.test.mjs">
+		<skipped type="todo" message="true"/>
+	</testcase>
+	<testsuite name="a suite" time="0.004232" disabled="0" errors="0" tests="2" failures="1" skipped="0" timestamp="2026-11-24T22:53:23.701Z" hostname="runner">
+		<testcase name="nested passes" time="0.000143" classname="a suite" file="/home/runner/work/app/app/sample.test.mjs"/>
+		<testsuite name="inner" time="0.003646" disabled="0" errors="0" tests="1" failures="1" skipped="0" timestamp="2026-11-24T22:53:23.699Z" hostname="runner">
+			<testcase name="deep fails &amp; &lt;escapes>" time="0.000119" classname="a suite.inner" file="/home/runner/work/app/app/sample.test.mjs" failure="boom &quot;quoted&quot; &lt;tag>">
+				<failure type="testCodeFailure" message="boom &quot;quoted&quot; &lt;tag>">
+Error [ERR_TEST_FAILURE]: boom "quoted" &lt;tag>
+    at new Promise (&lt;anonymous>)
+    at Array.map (&lt;anonymous>) {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: Error: boom "quoted" &lt;tag>
+      at TestContext.&lt;anonymous> (file:///home/runner/work/app/app/sample.test.mjs:10:48)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at node:internal/test_runner/test:1903:71
+      at node:internal/per_context/primordials:504:82
+      at new Promise (&lt;anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:478:3)
+      at node:internal/per_context/primordials:504:9
+      at Array.map (&lt;anonymous>)
+}
+				</failure>
+			</testcase>
+		</testsuite>
+	</testsuite>
+	<testcase name="never runs" time="0.000352" classname="test" file="/home/runner/work/app/app/second.test.mjs" failure="failed running before hook">
+		<failure type="hookFailed" message="failed running before hook">
+[Error [ERR_TEST_FAILURE]: failed running before hook] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'hookFailed',
+  cause: Error: setup could not reach its backend
+      at TestContext.&lt;anonymous> (file:///home/runner/work/app/app/second.test.mjs:2:22)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///home/runner/work/app/app/second.test.mjs:2:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+      at async node:internal/modules/esm/loader:647:26
+}
+		</failure>
+	</testcase>
+	<!-- tests 7 -->
+	<!-- suites 2 -->
+	<!-- pass 2 -->
+	<!-- fail 3 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 1 -->
+	<!-- todo 1 -->
+	<!-- duration_ms 171.093688 -->
+</testsuites>
