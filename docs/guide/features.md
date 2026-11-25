@@ -134,7 +134,10 @@ per-test result, all of it e2e.
 
 One job can write several reports (the platform repo's tests run vitest
 and node:test in the same step), so `reports` takes one `<runner> <path>` per
-line. They become one document with a row per test: its runner, spec, name,
+line. A path with a glob character (`*`, `?`, `[`, `{`) names every report it
+matches, so a monorepo writes `vitest workers/*/reports/vitest.json` once;
+a pattern that matches nothing is a missing report, the same warning as a
+named file that is not there. They become one document with a row per test: its runner, spec, name,
 outcome, attempts and duration, and for a red one its error, `file:line` and
 class. The parsers are [`report-tests/parsers.mjs`](../../report-tests/parsers.mjs),
 which report-e2e calls too:

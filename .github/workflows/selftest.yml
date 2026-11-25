@@ -1176,7 +1176,8 @@ jobs:
           grep -q "\"gitHead\": \"$GITHUB_SHA\"" .github/selftest/next-version-fixture/package.json
 
   # report-tests: the one parser every report goes through (report-e2e calls it
-  # too), over real runner output, then the action itself as a caller uses it.
+  # too), over real runner output, then the action itself as a caller uses it,
+  # a glob that matches and one that matches nothing included.
   # No `key` here, so the action writes its document and posts nothing; the
   # poster is tested against a local HTTP server in post.test.mjs.
   report-tests:
@@ -1202,13 +1203,15 @@ jobs:
             playwright report-e2e/fixtures/playwright-report.json
             pytest report-e2e/fixtures/pytest-report.xml
             vitest tmp/never-written.json
-      - name: assert the document holds all six, and the job is still green
+            node-test report-tests/fixtures/node-test-*.xml
+            vitest tmp/*/never-written.json
+      - name: assert the document holds all eight, and the job is still green
         env:
           DOC: ${{ steps.rt.outputs.document }}
         run: |
           node -e '
           const d = JSON.parse(require("node:fs").readFileSync(process.env.DOC, "utf8"));
           const s = d.reports.map((r) => r.runner + ":" + r.report_status).join(" ");
-          if (s !== "node-test:ok jest:ok vitest:ok playwright:ok pytest:ok vitest:missing") throw new Error(s);
+          if (s !== "node-test:ok jest:ok vitest:ok playwright:ok pytest:ok vitest:missing node-test:ok vitest:missing") throw new Error(s);
           if (!d.tests.length || d.tests.some((t) => !t.runner || !t.test_name)) throw new Error("bad rows");
           console.log(d.tests.length, "tests from", d.reports.length, "reports:", s);'

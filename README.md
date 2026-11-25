@@ -109,6 +109,8 @@ Runners: `playwright` (`--reporter=json`), `vitest` and `jest` (their JSON
 reporters), `pytest` (`--junitxml`), `node-test` (`--test-reporter=junit`) and
 `junit` (any other JUnit XML: cargo-nextest's `[profile.ci.junit]`). Keep the
 runner's console reporter beside the file one, so the log still reads.
+A path may be a glob (`vitest packages/*/reports/vitest.json`): every match
+is read, and a pattern that matches nothing warns as a missing report.
 
 ## `report-e2e`
 

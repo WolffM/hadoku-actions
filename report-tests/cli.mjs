@@ -16,7 +16,7 @@
  * step's own exit code already fails a red job; this step must not add a red
  * of its own until its findings have been read (a new check starts quiet).
  */
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, globSync, readFileSync, writeFileSync } from 'node:fs';
 import { mergeSidecarErrors, parseReport, RUNNERS } from './parsers.mjs';
 
 const env = process.env;
@@ -41,13 +41,29 @@ const specs = String(env.REPORTS ?? '')
 	});
 if (!specs.length) warn('no reports given: set `reports` to one `<runner> <path>` per line');
 
-const reports = [];
-const tests = [];
-for (const { runner, path } of specs) {
-	if (!RUNNERS.includes(runner) || !path) {
-		warn(`'${runner} ${path}': each line is '<runner> <path>', runner one of ${RUNNERS.join(', ')}`);
+// A path with a glob character names every report it matches, so a monorepo
+// lists `vitest workers/*/reports/vitest.json` once instead of each package by
+// hand. A pattern that matches nothing is a missing report: a suite that wrote
+// none must not pass as a suite that was never asked for.
+const GLOB = /[*?[{]/;
+const expanded = [];
+for (const spec of specs) {
+	if (!RUNNERS.includes(spec.runner) || !spec.path) {
+		warn(`'${spec.runner} ${spec.path}': each line is '<runner> <path>', runner one of ${RUNNERS.join(', ')}`);
 		continue;
 	}
+	if (!GLOB.test(spec.path)) {
+		expanded.push(spec);
+		continue;
+	}
+	const matches = globSync(spec.path).sort();
+	if (!matches.length) expanded.push(spec);
+	for (const path of matches) expanded.push({ runner: spec.runner, path });
+}
+
+const reports = [];
+const tests = [];
+for (const { runner, path } of expanded) {
 	let raw = null;
 	let readError = null;
 	try {
