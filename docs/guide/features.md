@@ -163,6 +163,14 @@ store upserts on repo, suite, run and attempt, so the poster's one retry after
 a network error or a 5xx cannot count a run twice. Every problem, an unset key
 and a refused post included, is a warning and the job is never failed by it:
 the test step's own exit code already does that, and a new check starts quiet.
+
+A repo whose CI runs on GitHub-hosted runners, so that collaborators' code
+never runs on the fleet, can neither reach the store (Cloudflare challenges
+those runners) nor safely hold a key (a collaborator's branch could read it).
+With `relay: 'true'` the document is uploaded as the artifact
+`report-tests-<suite>` instead, and the hub, which already reads that repo's
+runs to deploy it, posts it with the run's identity taken from GitHub's own
+record of the run, never from the document.
 Run over real
 reports from three repos on 2026-11-24 (vitest, node:test and pytest; 779,
 101 and 4,832 tests), every test parsed, no id repeated within a run, and the

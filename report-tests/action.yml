@@ -41,6 +41,13 @@ inputs:
   endpoint:
     description: The fleet test store's ingest URL.
     default: https://hadoku.me/health/api/tests/runs
+  relay:
+    description: >-
+      'true' for a repo whose CI cannot reach the store and must hold no key
+      (GitHub-hosted runners: Cloudflare challenges them). The document is
+      uploaded as the artifact `report-tests-<suite>` instead of posted, and
+      the hub posts it (hadoku_site mgmt-api scraper-collab:deploy-on-green).
+    default: 'false'
 
 outputs:
   document:
@@ -60,7 +67,21 @@ runs:
       run: |
         node "$GITHUB_ACTION_PATH/cli.mjs" || echo "::warning title=report-tests::the reader itself crashed (exit $?)"
         echo "document=$OUT" >> "$GITHUB_OUTPUT"
+        echo "suite=${SUITE:-${GITHUB_JOB:-tests}}" >> "$GITHUB_OUTPUT"
+    # A relayed document waits for the hub as an artifact. Every outcome is
+    # uploaded, cancelled included: the hub reads the run's conclusion and
+    # skips a cancelled one, as the post step below does.
+    - name: upload the document for the hub to post
+      if: inputs.relay == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: report-tests-${{ steps.parse.outputs.suite }}
+        path: ${{ steps.parse.outputs.document }}
+        retention-days: 7
+        overwrite: true
+        if-no-files-found: warn
     - name: post to the fleet test store
+      if: inputs.relay != 'true'
       shell: bash
       env:
         DOC: ${{ runner.temp }}/report-tests.json

@@ -112,6 +112,9 @@ reporters), `pytest` (`--junitxml`), `node-test` (`--test-reporter=junit`) and
 runner's console reporter beside the file one, so the log still reads.
 A path may be a glob (`vitest packages/*/reports/vitest.json`): every match
 is read, and a pattern that matches nothing warns as a missing report.
+`relay: 'true'` (with no `key`) uploads the document as the artifact
+`report-tests-<suite>` for the hub to post, for a repo on GitHub-hosted
+runners that cannot reach the store and must not hold a key.
 
 ## `report-e2e`
 
