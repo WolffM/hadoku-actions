@@ -146,7 +146,10 @@ which report-e2e calls too:
 - **jest** writes the same JSON shape vitest copies; it says `pending` where
   vitest says `skipped`.
 - **node:test**'s JUnit reporter nests a `<testsuite>` per `describe`, so a
-  test's name is its describe chain, and its spec is the `file` attribute. It
+  test's name is its describe chain, and its spec is the `file` attribute.
+  Node before 23 writes no `file` (and `classname="test"` on every case), so
+  such a report's spec is `unknown` and it warns, naming Node 23 as the fix.
+  node:test never retries, so its cases are never grouped as reruns. It
   escapes `<` but not `>` inside an attribute, so tags are matched
   quote-aware. A failing `before` hook says only "failed running before
   hook"; the real error is the `cause:` in its text, which the parser appends.

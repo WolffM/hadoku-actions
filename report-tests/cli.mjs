@@ -102,6 +102,7 @@ for (const { runner, path } of expanded) {
 	}
 	if (parsed.reportStatus !== 'ok') warn(`${runner} ${path}: report ${parsed.reportStatus}`);
 	for (const e of parsed.suiteErrors) warn(`${path}: outside any test: ${e.split('\n')[0]}`);
+	for (const w of parsed.warnings) warn(`${path}: ${w}`);
 }
 
 const doc = {

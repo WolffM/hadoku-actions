@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="pageLoadRows" time="0.008814" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="runner">
+		<testcase name="mobile and desktop are separate rows for the same page" time="0.007463" classname="test"/>
+		<testcase name="the latest probe wins the row; the whole list feeds the trend" time="0.000237" classname="test"/>
+		<testcase name="sorted by page then form" time="0.000258" classname="test"/>
+		<testcase name="no probes is no rows" time="0.000094" classname="test"/>
+	</testsuite>
+	<testsuite name="scoreTone" time="0.000200" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="runner">
+		<testcase name="Lighthouse's own bands, boundaries inclusive on the good side" time="0.000111" classname="test"/>
+	</testsuite>
+	<testsuite name="lcpTone" time="0.000511" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="runner">
+		<testcase name="web.dev Good/Needs improvement/Poor" time="0.000204" classname="test"/>
+	</testsuite>
+	<testsuite name="tbtTone" time="0.000316" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="runner">
+		<testcase name="web.dev Good/Needs improvement/Poor" time="0.000185" classname="test"/>
+	</testsuite>
+	<testsuite name="page weight and LCP breakdown" time="0.011663" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="runner">
+		<testcase name="the largest transfer is the first of top_resources" time="0.003120" classname="test"/>
+		<testcase name="a probe from before the breakdown existed has neither" time="0.000355" classname="test"/>
+		<testcase name="the slowest LCP subpart is named the way the table reads it" time="0.000312" classname="test"/>
+		<testcase name="bytes read as KB under a megabyte and MB over" time="0.000126" classname="test"/>
+	</testsuite>
+	<!-- tests 11 -->
+	<!-- suites 5 -->
+	<!-- pass 11 -->
+	<!-- fail 0 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 228.742191 -->
+</testsuites>

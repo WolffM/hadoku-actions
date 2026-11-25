@@ -16,6 +16,20 @@ const WS = '/home/runner/work/app/app';
 const read = (p) => readFileSync(join(here, p), 'utf8');
 const byName = (rows) => Object.fromEntries(rows.map((r) => [r.test_name, r]));
 
+test('node:test JUnit from Node 22: no file, the describe chain kept, nothing grouped', () => {
+	// Real `node --test --test-reporter=junit` output from Node 22.23.5: every
+	// case says classname="test" and no file. Two describes hold a test named
+	// alike; read as pytest reruns, they were one "flaky" test.
+	const r = parseReport('node-test', read('fixtures/node-test-22-report.xml'), { workspace: WS });
+	assert.equal(r.reportStatus, 'ok');
+	const names = r.rows.map((x) => x.test_name);
+	assert.ok(names.includes('lcpTone > web.dev Good/Needs improvement/Poor'), names.join('\n'));
+	assert.ok(names.includes('tbtTone > web.dev Good/Needs improvement/Poor'));
+	assert.ok(r.rows.every((x) => x.spec === 'unknown' && x.outcome === 'passed' && x.attempts === 1));
+	assert.equal(r.warnings.length, 1);
+	assert.match(r.warnings[0], new RegExp(`^${r.rows.length} node:test case\\(s\\) carry no file`));
+});
+
 test('node:test JUnit: describe nesting, escapes, skips and todos, the hook cause', () => {
 	const r = parseReport('node-test', read('fixtures/node-test-report.xml'), { workspace: WS });
 	assert.equal(r.reportStatus, 'ok');

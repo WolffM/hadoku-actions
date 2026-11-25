@@ -48,6 +48,8 @@ export function parseReport(runner, raw, opts = {}) {
 	const ctx = {
 		workspace: opts.workspace ?? process.cwd(),
 		suiteErrors: [],
+		warnings: [],
+		runner,
 	};
 	const where = opts.reportPath ?? 'the report';
 	const out = (reportStatus, rows = [], extra = {}) => ({
@@ -56,6 +58,7 @@ export function parseReport(runner, raw, opts = {}) {
 		suiteErrors: ctx.suiteErrors,
 		toolVersion: extra.toolVersion ?? null,
 		testWallMs: extra.testWallMs ?? null,
+		warnings: ctx.warnings,
 	});
 
 	if (raw === null || raw === undefined) {
@@ -278,16 +281,21 @@ function parseJestShaped(report, ctx, runner) {
  * child. Text is entity-escaped, never CDATA, except in nextest's
  * `<system-out>`, which is skipped whole.
  *
- * Naming. A testcase with a `file` attribute (node:test) is `spec: file` and
- * `test_name: <describe> > … > <name>` from the enclosing suites. One without
- * (pytest, nextest) is `spec: classname`, `test_name: name`, as report-e2e has
- * always stored pytest rows.
+ * Naming. A node:test testcase is `test_name: <describe> > … > <name>` from
+ * the enclosing suites, and `spec: file`. Node before 23 writes no `file` and
+ * `classname="test"` on every case (measured on 22.23.5), so its spec is
+ * `unknown` and the report warns: two files' same-named tests are then one
+ * test in the store. Any other JUnit (pytest, nextest) is `spec: classname`,
+ * `test_name: name`, as report-e2e has always stored pytest rows.
  *
  * Reruns (pytest-rerunfailures, verified against a real `--reruns 2` report,
  * `report-e2e/fixtures/pytest-report.xml`): a retried attempt lands as an
  * EMPTY `<testcase>` under the same classname+name, consecutively. So
  * consecutive same-named cases are one test whose outcome is the LAST case's:
  * ending in a failure is `failed`, ending clean after more than one is `flaky`.
+ * node:test never retries, so its cases are never grouped: on Node 22 two
+ * describes' same-named tests (`lcpTone > x`, `tbtTone > x`) were read as one
+ * flaky test before the describe chain was kept.
  *
  * node:test's hook failure (`type="hookFailed"`) says only "failed running
  * before hook"; the real error is the `cause:` in the text, appended here.
@@ -306,6 +314,7 @@ function parseJunit(xml, ctx) {
 	let nodeDurationMs = null;
 	const rows = [];
 	let group = null;
+	let unfiled = 0;
 
 	function flush() {
 		if (!group) return;
@@ -350,8 +359,10 @@ function parseJunit(xml, ctx) {
 		const name = decodeXmlEntities(attrs.name ?? 'unknown');
 		const classname = decodeXmlEntities(attrs.classname ?? 'unknown');
 		const file = attrs.file ? decodeXmlEntities(attrs.file) : null;
-		const spec = file ? repoPath(file, ctx.workspace) : classname;
-		const test_name = file ? [...stack, name].join(' > ') : name;
+		const nodeTest = ctx.runner === 'node-test';
+		const spec = file ? repoPath(file, ctx.workspace) : nodeTest ? 'unknown' : classname;
+		const test_name = file || nodeTest ? [...stack, name].join(' > ') : name;
+		if (nodeTest && !file) unfiled++;
 		const inner = (m[4] ?? '').replace(/<system-(out|err)>[\s\S]*?<\/system-\1>/g, '');
 		const entry = {
 			time: Number(attrs.time ?? '0') || 0,
@@ -360,13 +371,19 @@ function parseJunit(xml, ctx) {
 		};
 		if (entry.failed) Object.assign(entry, junitFailure(inner, file, ctx.workspace));
 
-		if (group && group.spec === spec && group.name === test_name) group.entries.push(entry);
+		if (!nodeTest && group && group.spec === spec && group.name === test_name)
+			group.entries.push(entry);
 		else {
 			flush();
 			group = { spec, name: test_name, entries: [entry] };
 		}
 	}
 	flush();
+	if (unfiled) {
+		ctx.warnings.push(
+			`${unfiled} node:test case(s) carry no file: Node before 23 writes none, so their spec is 'unknown' and same-named tests in different files are one test in the store; run the tests on Node 23 or later`
+		);
+	}
 	const testWallMs =
 		nodeDurationMs !== null
 			? Math.round(nodeDurationMs)
