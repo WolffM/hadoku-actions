@@ -31,7 +31,7 @@ inputs:
     default: ''
   node-version:
     required: false
-    default: '22'
+    default: '24'
   working-directory:
     description: Where the pnpm project lives, relative to the checkout.
     required: false

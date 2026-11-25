@@ -202,7 +202,7 @@ leave it unset for a standalone `workflow_dispatch` of your own `e2e.yml`.
   run: pnpm install --frozen-lockfile
 ```
 
-`node-version` (`22`), `pnpm-version` (`11.5.0`), `registry-url` and `scope`
+`node-version` (`24`), `pnpm-version` (`11.5.0`), `registry-url` and `scope`
 all default to the fleet's values. Keep `pnpm-version` equal to the repo's
 `package.json` `packageManager` — corepack is pinned by that field locally,
 and a workflow disagreeing with it is drift nothing reports. The pnpm store

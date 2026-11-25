@@ -73,9 +73,12 @@ description: >-
 
 inputs:
   node-version:
-    description: Node major to install.
+    description: >-
+      Node major to install. 24 since 2026-11-25: hokon runs every hub service
+      on 24, and Node 22's node:test JUnit names no file, so its tests could
+      not be told apart in the fleet test store.
     required: false
-    default: '22'
+    default: '24'
   pnpm-version:
     description: >-
       pnpm version corepack activates. Keep it equal to the repo's
