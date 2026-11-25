@@ -1,0 +1,72 @@
+name: Set up cargo-nextest
+description: >-
+  Put a pinned, checksum-verified prebuilt cargo-nextest on PATH for the rest
+  of the job, so a Rust test step can write the JUnit report that
+  report-tests posts to the fleet test store.
+
+# WHY NEXTEST
+# -----------
+# cargo's libtest has no stable report format: JSON and JUnit output are
+# nightly-only. cargo-nextest writes JUnit on stable, which report-tests reads
+# as `junit` (hadoku_site docs/planning/unified-test-reporting-2026-11-23.md).
+# The caller adds `.config/nextest.toml` with
+#
+#     [profile.ci.junit]
+#     path = "junit.xml"
+#
+# and runs `cargo nextest run --profile ci`; the report lands at
+# target/nextest/ci/junit.xml. nextest runs no doctests: a crate that has them
+# keeps a `cargo test --doc` step beside it.
+#
+# WHY A PREBUILT BINARY, IN RUNNER_TEMP
+# -------------------------------------
+# Building nextest from source is minutes per runner; the static musl release
+# unpacks in well under a second. RUNNER_TEMP, not ~/.cargo/bin: on a claw
+# ~/.cargo/bin is the fleet's rustup install, and the fleet's rust-cache
+# callers run with `cache-bin: false` because its post step deletes what it
+# finds there. Nothing here outlives the job.
+#
+# The version and both hashes are pinned below, in one place for the fleet. A
+# bump changes all three together, the hashes copied from the release's own
+# `<asset>.sha256` files after checking them against a local `sha256sum`.
+
+outputs:
+  version:
+    description: The cargo-nextest version now on PATH.
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        NEXTEST_VERSION: 0.9.151
+        SHA256_X86_64: 6b284d6fde9670dfb6ee10ea9d9abbc85f95643d3f592472d420d82e257b3a6c
+        SHA256_AARCH64: a9ee2d53cf0711d879f068c0ff814b6fe3af3f9be8799f8ab484e47571087160
+      run: |
+        set -euo pipefail
+        case "$(uname -s)-$(uname -m)" in
+          Linux-x86_64) target=x86_64-unknown-linux-musl sum=$SHA256_X86_64 ;;
+          Linux-aarch64) target=aarch64-unknown-linux-musl sum=$SHA256_AARCH64 ;;
+          *) echo "::error title=setup-nextest::no pinned cargo-nextest for $(uname -s) $(uname -m)"; exit 1 ;;
+        esac
+        dir="$RUNNER_TEMP/setup-nextest"
+        mkdir -p "$dir/bin"
+        tarball="$dir/cargo-nextest.tar.gz"
+        curl -fsSL --retry 3 -o "$tarball" \
+          "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$NEXTEST_VERSION/cargo-nextest-$NEXTEST_VERSION-$target.tar.gz"
+        if ! echo "$sum  $tarball" | sha256sum -c --quiet; then
+          echo "::error title=setup-nextest::cargo-nextest $NEXTEST_VERSION ($target) does not match its pinned sha256"
+          exit 1
+        fi
+        tar -xzf "$tarball" -C "$dir/bin" cargo-nextest
+        rm -f "$tarball"
+        got=$("$dir/bin/cargo-nextest" nextest --version | awk 'NR==1 {print $2}')
+        if [ "$got" != "$NEXTEST_VERSION" ]; then
+          echo "::error title=setup-nextest::unpacked cargo-nextest reports $got, not $NEXTEST_VERSION"
+          exit 1
+        fi
+        echo "$dir/bin" >> "$GITHUB_PATH"
+        echo "version=$got" >> "$GITHUB_OUTPUT"
+        echo "cargo-nextest $got ($target) on PATH from $dir/bin"

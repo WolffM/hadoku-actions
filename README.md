@@ -20,6 +20,7 @@ reference.
 | [`report-tests`](report-tests/action.yml) | Reads every test report a job wrote (Playwright, vitest, jest, pytest, node:test, any JUnit XML) into one per-test document, prints counts, slowest tests and failures, and posts it to the fleet test store. Advisory: never fails the job. |
 | [`setup-pnpm`](setup-pnpm/action.yml) | Node + the pinned pnpm via corepack, and refuses to continue without the registry credential. |
 | [`setup-python-venv`](setup-python-venv/action.yml) | setup-python on the fleet's toolcache, then a throwaway venv under `RUNNER_TEMP` — so CI stops installing into an interpreter the whole box shares. |
+| [`setup-nextest`](setup-nextest/action.yml) | A pinned, sha256-checked prebuilt cargo-nextest on `PATH`, so a Rust test step writes JUnit for `report-tests`. |
 | [`repo-action`](repo-action/action.yml) | Asks mgmt-api, with this repo's own service key, to promote a `bot/*` branch onto the default branch or to notify hadoku_site. What every child repo used `HADOKU_SITE_TOKEN` for. |
 | [`update-wolffm`](update-wolffm/action.yml) | Bumps `@wolffm/*` to latest, pushes `bot/update-wolffm` with the job's own token, and promotes it through mgmt-api. Replaces twenty drifted `update-wolffm.yml` bodies and their `HADOKU_SITE_TOKEN`. |
 | [`repo-action-cli`](repo-action-cli/action.yml) | Exports `$REPO_ACTION`, the path of `repo-action`'s script, for a step that must promote from inside its own retry loop. Exit 2 means the default branch moved. |
@@ -229,6 +230,38 @@ two orderings are mutually exclusive.
 the fleet's values. The action prepends the venv to `PATH`, so a later bare
 `python` is the venv's; prefer the `python` output
 (`${{ steps.<id>.outputs.python }}`) where you want it explicit.
+
+## `setup-nextest`
+
+```yaml
+- uses: WolffM/hadoku-actions/setup-nextest@v1
+
+- name: Test
+  id: test
+  run: cargo nextest run --workspace --profile ci
+
+- name: Report the tests
+  if: always() && steps.test.outcome != 'skipped'
+  uses: WolffM/hadoku-actions/report-tests@v1
+  with:
+    suite: <stable name>
+    reports: junit target/nextest/ci/junit.xml
+    key: ${{ secrets.KEY_SERVICE_<REPO> }}
+```
+
+with `.config/nextest.toml` beside `Cargo.toml`:
+
+```toml
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
+```
+
+No inputs: the version and its sha256 per architecture are pinned in the
+action, one place for the fleet. nextest runs no doctests; keep
+`cargo test --doc` where a crate has them.
 
 ## `vault-fetch`
 

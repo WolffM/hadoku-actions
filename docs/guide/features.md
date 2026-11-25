@@ -246,6 +246,27 @@ standard library resolves from the base interpreter by design, so naming a
 stdlib module there always fails. `install: ''` creates the venv and installs
 nothing, for a job that pins its own tool versions another way.
 
+## setup-nextest
+
+[`setup-nextest/action.yml`](../../setup-nextest/action.yml) puts a pinned
+cargo-nextest on `PATH` for the rest of the job, so a Rust test step writes
+a JUnit report that `report-tests` can post. cargo's own test runner has no
+stable report format: its JSON and JUnit output are nightly-only. The action
+downloads the static musl release for the runner's architecture (x86_64 or
+aarch64), checks it against a sha256 pinned in the action, unpacks it into
+`RUNNER_TEMP` and checks that the binary reports the pinned version. It never
+writes to `~/.cargo/bin`, which on a self-hosted runner is the machine's own
+rustup install. A bump changes the version and both hashes together.
+
+The caller adds `.config/nextest.toml` with `[profile.ci.junit] path =
+"junit.xml"`, runs `cargo nextest run --profile ci`, and hands
+`junit target/nextest/ci/junit.xml` to `report-tests`.
+
+**Limits**: Linux only. nextest runs no doctests, so a crate with doctests
+keeps a `cargo test --doc` step. nextest runs each test in its own process,
+so a suite that shares state between tests in one process needs checking
+under it before it switches.
+
 ## repo-action and repo-action-cli
 
 [`repo-action/action.yml`](../../repo-action/action.yml) sends one request to

@@ -1215,3 +1215,63 @@ jobs:
           if (s !== "node-test:ok jest:ok vitest:ok playwright:ok pytest:ok vitest:missing node-test:ok vitest:missing") throw new Error(s);
           if (!d.tests.length || d.tests.some((t) => !t.runner || !t.test_name)) throw new Error("bad rows");
           console.log(d.tests.length, "tests from", d.reports.length, "reports:", s);'
+
+  setup-nextest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: setup-nextest
+        id: nextest
+        uses: ./setup-nextest
+
+      # The version the action pins, read from the action itself, so a bump
+      # that forgets one of its three values fails here.
+      - name: assert cargo nextest is the pinned version
+        env:
+          OUT: ${{ steps.nextest.outputs.version }}
+        run: |
+          set -euo pipefail
+          want=$(sed -n 's/^ *NEXTEST_VERSION: *//p' setup-nextest/action.yml)
+          got=$(cargo nextest --version | awk 'NR==1 {print $2}')
+          echo "pinned $want, cargo nextest $got, output $OUT"
+          [ -n "$want" ] && [ "$got" = "$want" ] && [ "$OUT" = "$want" ]
+
+      # End to end with the reader it exists for: a two-test crate run under a
+      # `[profile.ci.junit]` profile, its JUnit read by report-tests.
+      - name: a crate's JUnit through nextest
+        run: |
+          set -euo pipefail
+          crate="$RUNNER_TEMP/nextest-crate"
+          cargo new --lib --quiet "$crate"
+          cat > "$crate/src/lib.rs" <<'RS'
+          #[cfg(test)]
+          mod tests {
+              #[test]
+              fn one() {}
+              #[test]
+              fn two() {}
+          }
+          RS
+          mkdir -p "$crate/.config"
+          printf '[profile.ci.junit]\npath = "junit.xml"\n' > "$crate/.config/nextest.toml"
+          (cd "$crate" && cargo nextest run --profile ci)
+          echo "JUNIT=$crate/target/nextest/ci/junit.xml" >> "$GITHUB_ENV"
+
+      - name: report-tests reads it
+        id: rt
+        uses: ./report-tests
+        with:
+          suite: selftest-nextest
+          reports: junit ${{ env.JUNIT }}
+
+      - name: assert both tests were read
+        env:
+          DOC: ${{ steps.rt.outputs.document }}
+        run: |
+          node -e '
+          const d = JSON.parse(require("node:fs").readFileSync(process.env.DOC, "utf8"));
+          const r = d.reports[0];
+          if (r.report_status !== "ok" || r.tests !== 2 || r.passed !== 2) throw new Error(JSON.stringify(r));
+          console.log("nextest JUnit:", r.tests, "tests,", r.passed, "passed");'

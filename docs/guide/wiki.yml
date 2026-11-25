@@ -12,8 +12,9 @@ features:
   - name: setup-pnpm
     summary: 'Installs Node and the pinned pnpm, asserts the registry credential, and (with vault-fetch) can read any vault secret at job time.'
     anchor: setup-pnpm-and-vault-fetch
-  - name: setup-python-venv
-    summary: 'Sets up Python, then builds an isolated throwaway venv so an install never lands in a shared interpreter.'
+  - name: setup-python-venv and setup-nextest
+    summary: 'Set up a toolchain without touching the shared runner: Python in an isolated throwaway venv, and a pinned, checksum-verified cargo-nextest so Rust tests write a report the test store can read.'
+    anchor: setup-python-venv
   - name: repo-action
     summary: 'Asks the account management API to fast-forward a bot branch onto the default branch, or to send a release notification.'
     anchor: repo-action-and-repo-action-cli
