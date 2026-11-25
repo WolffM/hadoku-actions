@@ -792,7 +792,7 @@ jobs:
           v=$(pnpm --version)
           [ "$v" = "11.5.0" ] || { echo "::error::pnpm is $v, expected 11.5.0"; exit 1; }
           n=$(node --version)
-          case "$n" in v22.*) ;; *) echo "::error::node is $n, expected v22.x"; exit 1 ;; esac
+          case "$n" in v24.*) ;; *) echo "::error::node is $n, expected v24.x"; exit 1 ;; esac
           echo "pnpm $v on node $n"
 
       # ONE STORE FOR THE JOB (#5). Read back through pnpm, not just the env
