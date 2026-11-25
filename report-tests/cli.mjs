@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * report-tests, Phase 0 (dry run): read every report a job's test step wrote,
- * normalise them into ONE document, write it, and print what it holds. Posts
- * nothing; the store arrives in Phase 1 (hadoku_site
+ * report-tests: read every report a job's test step wrote, normalise them into
+ * ONE document, write it, and print what it holds. post.mjs then posts it to
+ * the fleet test store (hadoku_site
  * docs/planning/unified-test-reporting-2026-11-23.md).
  *
  * Env, never argv, so action.yml's step stays a one-liner:
@@ -110,7 +110,7 @@ writeFileSync(out, JSON.stringify(doc));
 // --- What a person reads in the log and the step summary ---------------------
 const total = (k) => reports.reduce((s, r) => s + r[k], 0);
 const lines = [];
-lines.push(`## report-tests (dry run): ${suite} (${kind})`);
+lines.push(`## report-tests: ${suite} (${kind})`);
 lines.push('');
 lines.push('| runner | report | status | tests | passed | failed | flaky | skipped | wall |');
 lines.push('| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |');
@@ -122,7 +122,7 @@ for (const r of reports) {
 }
 lines.push('');
 lines.push(
-	`${total('tests')} tests: ${total('passed')} passed, ${total('failed')} failed, ${total('flaky')} flaky, ${total('skipped')} skipped. Document: \`${out}\` (${Buffer.byteLength(JSON.stringify(doc))} bytes), not posted.`
+	`${total('tests')} tests: ${total('passed')} passed, ${total('failed')} failed, ${total('flaky')} flaky, ${total('skipped')} skipped. Document: \`${out}\` (${Buffer.byteLength(JSON.stringify(doc))} bytes).`
 );
 const slow = [...tests].sort((a, b) => b.duration_ms - a.duration_ms).slice(0, 10);
 if (slow.length) {

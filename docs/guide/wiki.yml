@@ -7,7 +7,7 @@ features:
   - name: report-job
     summary: 'Posts a workflow job outcome to the execution log, so a red run pages without waiting on a daily digest.'
   - name: report-e2e and report-tests
-    summary: 'Parse a test report from any of six runners into per-test rows. report-e2e enforces a skip-reason rule, posts e2e runs to the nightly store, and leaves every failure''s evidence; report-tests reads every suite, unit and e2e, into one document so tests can be compared across repos.'
+    summary: 'Parse a test report from any of six runners into per-test rows. report-e2e enforces a skip-reason rule and keeps every failure''s evidence; report-tests posts every suite, unit and e2e, to one store so tests compare across repos.'
     anchor: report-e2e
   - name: setup-pnpm
     summary: 'Installs Node and the pinned pnpm, asserts the registry credential, and (with vault-fetch) can read any vault secret at job time.'

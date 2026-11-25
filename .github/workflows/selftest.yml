@@ -1177,7 +1177,8 @@ jobs:
 
   # report-tests: the one parser every report goes through (report-e2e calls it
   # too), over real runner output, then the action itself as a caller uses it.
-  # Phase 0 posts nothing, so nothing here can reach a store.
+  # No `key` here, so the action writes its document and posts nothing; the
+  # poster is tested against a local HTTP server in post.test.mjs.
   report-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1187,7 +1188,7 @@ jobs:
         with:
           node-version: '24'
       - name: parser and cli cases
-        run: node --test report-tests/parsers.test.mjs
+        run: node --test report-tests/parsers.test.mjs report-tests/post.test.mjs
 
       - name: report-tests over every runner's fixture, plus one missing report
         id: rt

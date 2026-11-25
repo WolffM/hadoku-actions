@@ -1,8 +1,8 @@
 name: Report tests
 description: >-
   Read every test report a job wrote (Playwright, vitest, jest, pytest,
-  node:test, any JUnit XML) into one per-test document and print it. Phase 0:
-  a dry run that posts nothing and never fails the job.
+  node:test, any JUnit XML) into one per-test document, print it, and post it
+  to the fleet test store. Advisory: it never fails the job.
 
 # WHY
 # ---
@@ -12,10 +12,12 @@ description: >-
 # step calls, unit and e2e alike, so every suite lands in the same shape
 # (hadoku_site docs/planning/unified-test-reporting-2026-11-23.md).
 #
-# Phase 0 (now): parse, print, write `report-tests.json`, warn on anything it
-# could not read. Phase 1 posts that document to the fleet test store. Until
-# its warnings across the fleet have been read, it never fails a job: the test
-# step's own exit code already does that.
+# It parses, prints, writes `report-tests.json`, warns on anything it could
+# not read, and posts the document to the fleet test store (hadoku_site
+# monitoring-api `POST /health/api/tests/runs`) with the repo's service key.
+# Until its warnings across the fleet have been read, it never fails a job: an
+# unset key or a refused post is a warning too, and the test step's own exit
+# code already fails a red job.
 #
 # `if: always()` at the call site, so a red run is read too.
 
@@ -31,6 +33,14 @@ inputs:
   kind:
     description: unit or e2e.
     default: unit
+  key:
+    description: >-
+      This repo's KEY_SERVICE_<APP> service-tier key, sent as X-User-Key. Unset:
+      the document is written and printed but not posted (a warning).
+    default: ''
+  endpoint:
+    description: The fleet test store's ingest URL.
+    default: https://hadoku.me/health/api/tests/runs
 
 outputs:
   document:
@@ -50,3 +60,11 @@ runs:
       run: |
         node "$GITHUB_ACTION_PATH/cli.mjs" || echo "::warning title=report-tests::the reader itself crashed (exit $?)"
         echo "document=$OUT" >> "$GITHUB_OUTPUT"
+    - name: post to the fleet test store
+      shell: bash
+      env:
+        DOC: ${{ runner.temp }}/report-tests.json
+        SERVICE_KEY: ${{ inputs.key }}
+        ENDPOINT: ${{ inputs.endpoint }}
+      run: |
+        node "$GITHUB_ACTION_PATH/post.mjs" || echo "::warning title=report-tests::the poster itself crashed (exit $?)"

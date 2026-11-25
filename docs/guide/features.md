@@ -152,10 +152,14 @@ which report-e2e calls too:
 The fixtures are real runner output (node:test 24, jest 30), with only the
 checkout path rewritten.
 
-**Dry run** (Phase 0 of the fleet's unified test reporting plan): it writes the document,
-prints counts, the ten slowest tests and every failure, and posts nothing.
-Every problem is a warning and the job is never failed by it: the test step's
-own exit code already does that, and a new check starts quiet. Run over real
+It writes the document, prints counts, the ten slowest tests and every
+failure, then [`report-tests/post.mjs`](../../report-tests/post.mjs) posts it,
+gzipped, to the fleet test store with the repo's service key (`key`). The
+store upserts on repo, suite, run and attempt, so the poster's one retry after
+a network error or a 5xx cannot count a run twice. Every problem, an unset key
+and a refused post included, is a warning and the job is never failed by it:
+the test step's own exit code already does that, and a new check starts quiet.
+Run over real
 reports from three repos on 2026-11-24 (vitest, node:test and pytest; 779,
 101 and 4,832 tests), every test parsed, no id repeated within a run, and the
 largest document was 1.4 MB, 78 KB gzipped.
