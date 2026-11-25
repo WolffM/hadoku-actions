@@ -1157,7 +1157,21 @@ jobs:
         with:
           node-version: '24'
       - name: next-version cases
-        run: node --test next-version/next-version.test.mjs
+        run: |
+          mkdir -p reports
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=reports/next-version.xml \
+            next-version/next-version.test.mjs
+      # Through the released v1, not ./report-tests: this records the tests,
+      # it does not test the action. Relayed (hadoku_site scripts/admin/test-relay.json):
+      # a hosted runner cannot reach the store, and this public repo holds no key.
+      - name: Report the tests
+        if: always()
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: next-version
+          relay: 'true'
+          reports: node-test reports/next-version.xml
 
       - name: next-version on a real package.json
         id: nv
@@ -1178,8 +1192,9 @@ jobs:
   # report-tests: the one parser every report goes through (report-e2e calls it
   # too), over real runner output, then the action itself as a caller uses it,
   # a glob that matches and one that matches nothing included.
-  # No `key` here, so the action writes its document and posts nothing; the
-  # poster is tested against a local HTTP server in post.test.mjs.
+  # The fixture step has no `key`, so the action writes its document and
+  # posts nothing; the poster is tested against a local HTTP server in
+  # post.test.mjs. The job's own tests are reported through v1, relayed.
   report-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1189,7 +1204,18 @@ jobs:
         with:
           node-version: '24'
       - name: parser and cli cases
-        run: node --test report-tests/parsers.test.mjs report-tests/post.test.mjs
+        run: |
+          mkdir -p reports
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=reports/report-tests.xml \
+            report-tests/parsers.test.mjs report-tests/post.test.mjs
+      - name: Report the tests
+        if: always()
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: report-tests
+          relay: 'true'
+          reports: node-test reports/report-tests.xml
 
       - name: report-tests over every runner's fixture, plus one missing report
         id: rt
@@ -1242,6 +1268,7 @@ jobs:
       # `[profile.ci.junit]` profile, its JUnit read by report-tests.
       - name: a crate's JUnit through nextest
         run: |
+          # test-reporting: no tests — a throwaway two-test crate, the fixture setup-nextest is checked against
           set -euo pipefail
           crate="$RUNNER_TEMP/nextest-crate"
           cargo new --lib --quiet "$crate"
