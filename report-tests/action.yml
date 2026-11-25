@@ -66,5 +66,13 @@ runs:
         DOC: ${{ runner.temp }}/report-tests.json
         SERVICE_KEY: ${{ inputs.key }}
         ENDPOINT: ${{ inputs.endpoint }}
+        JOB_STATUS: ${{ job.status }}
+      # A cancelled job (superseded by a newer push, or stopped by hand) is
+      # not a test result: the suite it cut off would land as `missing`, which
+      # reads as a crash. It is printed above and not posted.
       run: |
+        if [ "$JOB_STATUS" = cancelled ]; then
+          echo "::notice title=report-tests::the job was cancelled: its document is printed above and not posted"
+          exit 0
+        fi
         node "$GITHUB_ACTION_PATH/post.mjs" || echo "::warning title=report-tests::the poster itself crashed (exit $?)"
