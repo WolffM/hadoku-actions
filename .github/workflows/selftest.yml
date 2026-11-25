@@ -1231,14 +1231,14 @@ jobs:
             vitest tmp/never-written.json
             node-test report-tests/fixtures/node-test-*.xml
             vitest tmp/*/never-written.json
-      - name: assert the document holds all eight, and the job is still green
+      - name: assert the document holds all nine (the glob matches two fixtures), and the job is still green
         env:
           DOC: ${{ steps.rt.outputs.document }}
         run: |
           node -e '
           const d = JSON.parse(require("node:fs").readFileSync(process.env.DOC, "utf8"));
           const s = d.reports.map((r) => r.runner + ":" + r.report_status).join(" ");
-          if (s !== "node-test:ok jest:ok vitest:ok playwright:ok pytest:ok vitest:missing node-test:ok vitest:missing") throw new Error(s);
+          if (s !== "node-test:ok jest:ok vitest:ok playwright:ok pytest:ok vitest:missing node-test:ok node-test:ok vitest:missing") throw new Error(s);
           if (!d.tests.length || d.tests.some((t) => !t.runner || !t.test_name)) throw new Error("bad rows");
           console.log(d.tests.length, "tests from", d.reports.length, "reports:", s);'
 
