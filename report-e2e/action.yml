@@ -275,14 +275,18 @@ runs:
         inserted_total=0
         failed_chunks=()
         for i in $(seq 0 $((chunk_count - 1))); do
-          body=$(node -e "
+          # Gzipped, like the run record (evidence.mjs): Cloudflare's WAF
+          # refuses a plain JSON body whose text reads as a shell or SQL
+          # injection, and a test's error message can (hadoku-actions#11).
+          node -e "
             const fs = require('node:fs');
+            const { gzipSync } = require('node:zlib');
             const chunks = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
             const results = chunks[Number(process.argv[2])];
             const body = { gh_run_id: process.env.GH_RUN_ID, run_attempt: Number(process.env.RUN_ATTEMPT || 1), repo: process.env.REPO, app: process.env.APP, results };
             if (process.env.NIGHTLY_RUN_ID) body.nightly_run_id = process.env.NIGHTLY_RUN_ID;
-            process.stdout.write(JSON.stringify(body));
-          " "$RUNNER_TEMP/report-e2e-chunks.json" "$i")
+            fs.writeFileSync(process.argv[3], gzipSync(JSON.stringify(body)));
+          " "$RUNNER_TEMP/report-e2e-chunks.json" "$i" "$RUNNER_TEMP/report-e2e-body-$i.json.gz"
 
           # Remove any stale file first — on a hard connect failure curl may
           # write no response body at all, and the error message below must
@@ -296,7 +300,8 @@ runs:
             -X POST "$ENDPOINT" \
             -H "X-User-Key: $SERVICE_KEY" \
             -H 'Content-Type: application/json' \
-            --data "$body")
+            -H 'Content-Encoding: gzip' \
+            --data-binary "@$RUNNER_TEMP/report-e2e-body-$i.json.gz")
           curl_exit=$?
           # A hard network failure (connection refused, DNS, timeout) makes
           # curl exit non-zero; some curl builds still print "000" via -w in

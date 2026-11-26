@@ -1,14 +1,16 @@
 """A stand-in monitoring-api e2e store for the self-test.
 
 `ok` answers a POST to .../results with `{"inserted": len(results)}` and a POST
-to .../runs with `{"id": ...}`, reading the real body, and appends every body it
-received to /tmp/fake-e2e-store-<port>.jsonl so the self-test can assert what
-actually arrived. GET .../runs/last-green answers with the sha in the
+to .../runs with `{"id": ...}`, reading the real body (gunzipped when it says
+`Content-Encoding: gzip`, as monitoring-api does), and appends every body it
+received, with its encoding, to /tmp/fake-e2e-store-<port>.jsonl so the
+self-test can assert what actually arrived. GET .../runs/last-green answers with the sha in the
 LAST_GREEN_SHA env var (null when unset). `deny` answers a JSON 403 to every
 POST. `hang` reads a POST and never answers, the way the live store did on
 2026-10-29 (hadoku-actions#4).
 """
 import http.server
+import gzip
 import json
 import os
 import sys
@@ -27,7 +29,11 @@ class Store(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
-        body = json.loads(self.rfile.read(length)) if length else {}
+        raw = self.rfile.read(length) if length else b''
+        encoding = self.headers.get('Content-Encoding') or 'identity'
+        if encoding == 'gzip':
+            raw = gzip.decompress(raw)
+        body = json.loads(raw) if raw else {}
         if MODE == 'hang':
             time.sleep(3600)
             return
@@ -35,7 +41,7 @@ class Store(http.server.BaseHTTPRequestHandler):
             self._send(403, {'error': 'forbidden'})
             return
         with open(LOG, 'a') as f:
-            f.write(json.dumps({'path': self.path, 'body': body}) + '\n')
+            f.write(json.dumps({'path': self.path, 'encoding': encoding, 'body': body}) + '\n')
         if self.path.rstrip('/').endswith('/runs'):
             self._send(200, {'id': f"{body.get('gh_run_id')}:{body.get('run_attempt')}:{body.get('app')}"})
         else:

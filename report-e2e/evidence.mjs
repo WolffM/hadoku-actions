@@ -6,6 +6,10 @@
  *   1. POST <store>/runs: environment, conclusion, artifact link and change
  *      window (monitoring-api migration 0023). A failed POST is appended to the
  *      post-failures file, so it fails the job like a failed results POST.
+ *      Gzipped: Cloudflare's WAF 403s a plain JSON body whose commit subjects
+ *      read as command injection (a backticked `python -m unittest`), and it
+ *      decodes JSON \u escapes, so only a compressed body gets through
+ *      (hadoku-actions#11).
  *   2. The CI log: an annotation per failure on its file and line, then a
  *      collapsed group per failed or flaky test with its whole error, where the
  *      trace is, and how to open it. Before this, a vitest suite with a JSON-only
@@ -19,6 +23,7 @@
  * GITHUB_STEP_SUMMARY.
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 
 const env = process.env;
 const UA = 'Mozilla/5.0 (compatible; hadoku-report-e2e)';
@@ -76,8 +81,13 @@ async function postRun(record) {
 	try {
 		const res = await fetch(url, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'X-User-Key': env.SERVICE_KEY, 'User-Agent': UA },
-			body: JSON.stringify(record),
+			headers: {
+				'Content-Type': 'application/json',
+				'Content-Encoding': 'gzip',
+				'X-User-Key': env.SERVICE_KEY,
+				'User-Agent': UA,
+			},
+			body: gzipSync(JSON.stringify(record)),
 			signal: AbortSignal.timeout(30_000),
 		});
 		if (res.ok) {

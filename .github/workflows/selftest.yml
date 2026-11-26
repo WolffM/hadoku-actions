@@ -667,6 +667,8 @@ jobs:
           results = [p['body'] for p in mine if p['path'].endswith('/results')]
           runs = [p['body'] for p in mine if p['path'].endswith('/runs')]
           assert len(results) == 1 and len(runs) == 1, (len(results), len(runs))
+          # Gzipped, or the live WAF 403s a commit subject (hadoku-actions#11).
+          assert all(p['encoding'] == 'gzip' for p in mine), [(p['path'], p['encoding']) for p in mine]
           rows = {r['test_name']: r for r in results[0]['results']}
           f = rows['fails']
           assert f['error_location'] == 'report-e2e/fixtures/pw/a.spec.ts:4', f['error_location']

@@ -103,6 +103,17 @@ with the `@wolffm/*` version bumps among them. A run that crashed before
 writing its report used to exit before posting and read as a night it did not
 run; it is now a `harness` run with the reason.
 
+**Both POSTs are gzipped** (2026-11-26, #11). The run record carries the
+commit subjects, and this fleet's subjects quote commands in backticks.
+Cloudflare's WAF on hadoku.me answered a plain JSON body holding
+``check:test-reporting reads `python -m unittest` as a test run`` with a 403
+HTML page, before the worker saw it. Last-green only moves when that POST
+succeeds, so the same subject sat in every later window and the canary stayed
+red every night. Escaping the characters as JSON `\u00XX` did not help,
+because the WAF decodes them. A gzipped body is not inspected, so the run
+record and the `/results` chunks (a test's error text can trip the same rules)
+both go out as `Content-Encoding: gzip`.
+
 vitest 4.1's JSON report keeps no message for a `beforeAll` that throws: the
 file is `failed`, its `message` is empty and every test reads `skipped`
 (measured, `fixtures/vitest-hook-sidecar-report.json`). The parser reads that
