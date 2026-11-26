@@ -1189,6 +1189,103 @@ jobs:
           grep -q '"version": "0.4.8"' .github/selftest/next-version-fixture/package.json
           grep -q "\"gitHead\": \"$GITHUB_SHA\"" .github/selftest/next-version-fixture/package.json
 
+  # publish-gate: the comparator and the gate's rules as unit tests (every way
+  # to ship, and the one way to skip), then the composite through `uses:` on a
+  # stand-in registry, in both modes. A skip is the failure that matters, so
+  # each mode's outputs AND the workspace's package.json are asserted.
+  # Nothing here reaches a registry; the release canary runs it on a real one.
+  publish-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FAKE_REGISTRY: ${{ github.workspace }}/../publish-gate-fixture
+      FAKE_NPM: ${{ github.workspace }}/.github/selftest/fake-gate-npm.mjs
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: publish-gate cases
+        run: |
+          mkdir -p reports
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=reports/publish-gate.xml \
+            publish-gate/compare.test.mjs publish-gate/gate.test.mjs
+      # Through the released v1, not ./report-tests: see next-version's job.
+      - name: Report the tests
+        if: always()
+        uses: WolffM/hadoku-actions/report-tests@v1
+        with:
+          suite: publish-gate
+          relay: 'true'
+          reports: node-test reports/publish-gate.xml
+
+      - name: Build the stand-in registry
+        run: sh .github/selftest/publish-gate-fixture.sh "$FAKE_REGISTRY"
+
+      - name: report mode on an equal tarball
+        id: report
+        uses: ./publish-gate
+        env:
+          PUBLISH_GATE_NPM: ${{ env.FAKE_NPM }}
+        with:
+          package-dirs: ${{ env.FAKE_REGISTRY }}/equal
+          packer: ${{ env.FAKE_NPM }}
+
+      - name: it would skip, and still ships
+        env:
+          OUT: ${{ steps.report.outputs.ships }}/${{ steps.report.outputs.verdict }}/${{ steps.report.outputs.version }}
+        run: |
+          [ "$OUT" = true/skip/1.0.2 ] || { echo "::error::report: $OUT"; exit 1; }
+          grep -q '"version": "1.0.2"' "$FAKE_REGISTRY/equal/package.json"
+
+      - name: enforce mode on a changed tarball
+        id: changed
+        uses: ./publish-gate
+        env:
+          PUBLISH_GATE_NPM: ${{ env.FAKE_NPM }}
+        with:
+          package-dirs: ${{ env.FAKE_REGISTRY }}/changed
+          packer: ${{ env.FAKE_NPM }}
+          mode: enforce
+
+      - name: it ships, at the new version
+        env:
+          OUT: ${{ steps.changed.outputs.ships }}/${{ steps.changed.outputs.verdict }}/${{ steps.changed.outputs.version }}
+        run: |
+          [ "$OUT" = true/ship/1.0.2 ] || { echo "::error::changed: $OUT"; exit 1; }
+          grep -q '"version": "1.0.2"' "$FAKE_REGISTRY/changed/package.json"
+
+      - name: enforce mode on an equal tarball
+        id: enforce
+        uses: ./publish-gate
+        env:
+          PUBLISH_GATE_NPM: ${{ env.FAKE_NPM }}
+        with:
+          package-dirs: ${{ env.FAKE_REGISTRY }}/equal
+          packer: ${{ env.FAKE_NPM }}
+          mode: enforce
+
+      - name: it skips, and the workspace is back at the newest
+        env:
+          OUT: ${{ steps.enforce.outputs.ships }}/${{ steps.enforce.outputs.verdict }}/${{ steps.enforce.outputs.version }}
+        run: |
+          [ "$OUT" = false/skip/1.0.1 ] || { echo "::error::enforce: $OUT"; exit 1; }
+          grep -q '"version": "1.0.1"' "$FAKE_REGISTRY/equal/package.json"
+
+      # A mistyped mode must fail, never read as report or as enforce.
+      - name: an unknown mode is refused
+        id: badmode
+        continue-on-error: true
+        uses: ./publish-gate
+        with:
+          package-dirs: ${{ env.FAKE_REGISTRY }}/changed
+          mode: enforced
+
+      - name: assert the refusal actually fired
+        run: |
+          [ "${{ steps.badmode.outcome }}" = failure ] || { echo "::error::mode 'enforced' was accepted"; exit 1; }
+
   # report-tests: the one parser every report goes through (report-e2e calls it
   # too), over real runner output, then the action itself as a caller uses it,
   # a glob that matches and one that matches nothing included.

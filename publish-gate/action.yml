@@ -1,0 +1,63 @@
+name: Publish gate
+description: >-
+  Skip a publish whose tarball is equivalent to the registry's newest: same
+  files and runtime manifest, with only the version, the commit SHA, bundler
+  content hashes and devDependencies moved. Ships in every other case.
+
+inputs:
+  package-dirs:
+    description: >-
+      Newline-separated package dirs. One is a single package; several are ONE
+      lockstep group (a shared version, sibling pins, all ship or all skip).
+      Gate independent packages with one step each. Default '.'.
+    required: false
+    default: .
+  mode:
+    description: >-
+      'report' (default): ships is always 'true'; the would-be verdict is a
+      notice and a step-summary row. 'enforce': a skip sets ships to 'false'
+      and every package.json back to the newest version.
+    required: false
+    default: report
+  packer:
+    description: >-
+      The command that packs the candidate: 'pnpm' (default) for a repo that
+      publishes with `pnpm publish` (it resolves workspace: and catalog:
+      specifiers the same way), 'npm' for one that uses `npm publish`.
+    required: false
+    default: pnpm
+  sha:
+    description: The commit being published, recognised as a stamp. Default github.sha.
+    required: false
+    default: ${{ github.sha }}
+
+outputs:
+  ships:
+    description: >-
+      'false' only in enforce mode on a skip. Gate the publish (and the npmjs
+      leg) on it; leave the registry check and the dispatch alone, they act
+      on the newest version.
+    value: ${{ steps.gate.outputs.ships }}
+  verdict:
+    description: "'skip' or 'ship': what the gate decided, in either mode."
+    value: ${{ steps.gate.outputs.verdict }}
+  version:
+    description: The version package.json now holds (the newest, after a skip).
+    value: ${{ steps.gate.outputs.version }}
+
+# Runs AFTER next-version and the build, with the same registry setup and a
+# NODE_AUTH_TOKEN that can read the package (setup-pnpm). It packs the
+# candidate the way the publish would and fetches the newest's tarball, so a
+# private package's read is billed like any install on the runner: give it the
+# token the job's installs use.
+runs:
+  using: composite
+  steps:
+    - id: gate
+      shell: bash
+      env:
+        PUBLISH_GATE_DIRS: ${{ inputs.package-dirs }}
+        PUBLISH_GATE_MODE: ${{ inputs.mode }}
+        PUBLISH_GATE_PACKER: ${{ inputs.packer }}
+        PUBLISH_GATE_SHA: ${{ inputs.sha }}
+      run: node "$GITHUB_ACTION_PATH/gate.mjs"

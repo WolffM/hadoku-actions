@@ -22,8 +22,9 @@ features:
     summary: "Bumps the account's own packages to their latest versions, commits to a bot branch, and promotes it through repo-action."
   - name: publish-npmjs
     summary: "Mirrors an already-built package from the account's own registry to npmjs, behind a leak gate, across a two-job trusted-publishing handoff."
-  - name: next-version
-    summary: "Computes one patch above the newest published version and sets it as the package's version for the CI job only."
+  - name: next-version and publish-gate
+    summary: "Compute one patch above the newest published version for the CI job only, and skip a publish whose package is equivalent to the newest one, so a dependency bump that changes nothing shipped sets off no deploy."
+    anchor: next-version
 trivia:
   - 'It began as three byte-identical 5.5KB composite actions, hand-copied into three repos; by the time it moved into its own shared repo, 21 of 26 fleet repos reported nothing at all, one of them red for 46 runs across ten hours with only the daily digest to show it (`126237d`).'
   - '`publish-npmjs/public-packages.json` went from 9 names to 23 in nineteen days (`20ad07d` to `7b974f3`): one entry per decision, because listing a package there makes it world-readable on npmjs forever.'

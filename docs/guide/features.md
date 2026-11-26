@@ -402,6 +402,44 @@ output tells the caller to skip the publish and resume from there.
 `registry-url` and `scope`, and a `NODE_AUTH_TOKEN` with at least read access,
 before it runs.
 
+## publish-gate
+
+[`publish-gate/action.yml`](../../publish-gate/action.yml) packs the package
+the way its publish would, fetches the registry's newest tarball, and skips
+the publish when the two are equivalent. A bot dependency bump republished
+packages whose shipped files had not changed: 280 of 641 fleet publishes in
+the week to 2026-11-25, each one setting off the site's package update, a
+deploy and a fan-out to every consumer. Re-measured through this comparator over 324
+of them, 206 were equivalent; an independent raw diff of all 206 found none
+that changed anything a consumer installs.
+
+Equivalent means the same files, and the same manifest apart from `version`,
+`gitHead`, `devDependencies` and the non-install `scripts`. Inside the files
+only the package's own version and the commit SHA (full or a 7+ character
+prefix, each matched as a whole token), a bundler content hash in a file name
+and the references to it may differ; `.map` files are left out. In a lockstep
+group a member's exact pin on a sibling at the group version is allowed to
+move too, and the group skips only together.
+
+It ships whenever it cannot prove equality. That covers a first publish, a
+committed minor or major bump, a re-run, and an unreadable registry or
+tarball. It covers two chunk names that normalise to one, and an npmjs mirror
+(`publish-npmjs/public-packages.json`) that does not serve the newest yet.
+Every `workflow_dispatch`, the operator's "publish now", ships too. A mode it does not know fails the step, so a typo
+never reads as report or enforce.
+
+`report`, the default, never changes a run: it writes the would-be verdict
+as a `publish-gate report` notice (one JSON line, so a shadow period reads
+every verdict from the check-run annotations) and a step-summary table.
+`enforce` sets `ships` to `false` on a skip and every `package.json` back to
+the newest version, so what follows the publish acts on a version that
+exists.
+
+**Limits**: a republish whose only change is a runtime dependency floor
+(31% of the measured ones) still ships, by design. It costs one more
+packument read and one tarball download per gated package on every publish,
+billed like any install when the token is a PAT on a self-hosted runner.
+
 ## wait-for-live and prune-prereleases
 
 [`wait-for-live/action.yml`](../../wait-for-live/action.yml) polls a `url`

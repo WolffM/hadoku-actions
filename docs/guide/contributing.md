@@ -5,7 +5,7 @@ each action's usage reference; [`features.md`](features.md) has what each one
 does, its limits, and the incident that shaped it — read that before changing
 one.
 
-## The twelve actions
+## The actions
 
 | Action | What it does |
 | --- | --- |
@@ -19,6 +19,7 @@ one.
 | [`update-wolffm`](../../update-wolffm/action.yml) | Bumps every `@wolffm/*` dependency to latest and promotes the result through `repo-action`. |
 | [`publish-npmjs`](../../publish-npmjs/action.yml) | Mirrors an already-built `@wolffm/*` package to npmjs as `@hadoku/*`: this half packs and leak-checks it, and [`publish-npmjs/publish`](../../publish-npmjs/publish/action.yml) is the second, GitHub-hosted half that runs the trusted-publishing handoff. |
 | [`next-version`](../../next-version/action.yml) | Computes one patch above the newest published version. |
+| [`publish-gate`](../../publish-gate/action.yml) | Skips a publish whose tarball is equivalent to the registry's newest. |
 | [`wait-for-live`](../../wait-for-live/action.yml) | Polls a URL until it reports a given version. |
 | [`prune-prereleases`](../../prune-prereleases/action.yml) | Deletes a repo's oldest prereleases past a keep count. |
 
@@ -36,9 +37,13 @@ repo-action/call.sh          the HTTP call repo-action, repo-action-cli and
 vault-fetch/fetch.sh         the vault read, shared by vault-fetch's own
                               action and setup-pnpm's vault path
 next-version/next-version.mjs   the version arithmetic, with its own test file
+publish-gate/compare.mjs        the tarball comparison, with its own test file
+publish-gate/gate.mjs           the skip rules around it (reads next-version.mjs
+                              and publish-npmjs/public-packages.json)
 .github/workflows/selftest.yml  the one CI workflow: a job per action
 .github/selftest/            fixtures and stand-ins the self-test drives:
                               fake-broker.py, fake-e2e-store.py, fake-npm.sh,
+                              fake-gate-npm.mjs,
                               and a *-cases.sh per action whose `run:` shell
                               is extracted and tested directly
 ```
@@ -81,7 +86,10 @@ unset key warns, a colon-less `job-name` is refused, a `cancelled` outcome
 at or past `timeout-minutes` is reported as `failed` — be asserted without
 a real runner or a real key. `next-version` additionally has its own unit test,
 `node --test next-version/next-version.test.mjs`, covering the version
-arithmetic directly.
+arithmetic directly. `publish-gate` has two:
+`node --test publish-gate/compare.test.mjs publish-gate/gate.test.mjs`, the
+comparison's allowed differences (and each real change that could hide behind
+one) and every rule that makes the gate ship, run against a stand-in npm.
 
 Most of the other coverage — the `uses:`-based jobs in
 [`.github/workflows/selftest.yml`](../../.github/workflows/selftest.yml) —

@@ -153,14 +153,20 @@ function normaliseTree(files, ctx) {
  * @returns {{ equal: boolean, reason: string }}
  */
 export function compareTarballs(prev, next, opts) {
-	const ctx = {
-		versions: [opts.prevVersion, opts.nextVersion],
-		shas: [opts.sha, opts.prevGitHead],
-		siblings: opts.siblings ?? [],
-	};
 	if (!prev.has('package/package.json') || !next.has('package/package.json')) {
 		return { equal: false, reason: 'a tarball has no package/package.json' };
 	}
+	// Each manifest's own gitHead is a commit SHA too: the newest's names the
+	// commit that published it, wherever the caller's copy came from.
+	const gitHead = (files) => {
+		const v = JSON.parse(files.get('package/package.json').toString('utf8')).gitHead;
+		return typeof v === 'string' && /^[0-9a-f]{40}$/.test(v) ? v : undefined;
+	};
+	const ctx = {
+		versions: [opts.prevVersion, opts.nextVersion],
+		shas: [...new Set([opts.sha, opts.prevGitHead, gitHead(prev), gitHead(next)].filter(Boolean))],
+		siblings: opts.siblings ?? [],
+	};
 	const a = normaliseTree(prev, ctx);
 	if (a.reason) return { equal: false, reason: `newest: ${a.reason}` };
 	const b = normaliseTree(next, ctx);

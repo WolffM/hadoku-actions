@@ -26,6 +26,7 @@ reference.
 | [`repo-action-cli`](repo-action-cli/action.yml) | Exports `$REPO_ACTION`, the path of `repo-action`'s script, for a step that must promote from inside its own retry loop. Exit 2 means the default branch moved. |
 | [`publish-npmjs`](publish-npmjs/action.yml) | Republishes an already-built `@wolffm/*` package to npmjs as `@hadoku/*`, in the same job as its GitHub Packages publish, behind a leak gate. Only the names in `public-packages.json`. |
 | [`next-version`](next-version/action.yml) | Sets `package.json`'s version, in the CI workspace only, to one patch above the newest on the registry. Nothing is committed back. |
+| [`publish-gate`](publish-gate/action.yml) | Skips a publish whose tarball is equivalent to the registry's newest (only the version, the commit SHA, chunk hashes and devDependencies moved), so a bot dependency bump that changes nothing shipped stops setting off the update, deploy and fan-out after it. `report` mode by default. |
 | [`wait-for-live`](wait-for-live/action.yml) | Polls a URL until a field of its JSON answer equals the value this run published, so a deploy job goes green only once the deploy is being served. |
 | [`prune-prereleases`](prune-prereleases/action.yml) | Deletes this repo's oldest prereleases under a tag prefix, and their tags, keeping the newest N. |
 
@@ -352,6 +353,30 @@ publisher, once:
 ```
 
 Needs `setup-node` with the package's `registry-url` and `scope` first.
+
+## `publish-gate`
+
+```yaml
+- uses: WolffM/hadoku-actions/next-version@v1
+  id: version
+# ... the build ...
+- uses: WolffM/hadoku-actions/publish-gate@v1
+  id: gate
+  with:
+    mode: report          # enforce, once the shadow period is clean
+  env:
+    NODE_AUTH_TOKEN: ${{ env.HADOKU_NPM_READ_TOKEN }}   # read access is enough
+- if: steps.version.outputs.published != 'true' && steps.gate.outputs.ships == 'true'
+  run: pnpm publish --no-git-checks
+  env:
+    NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Gate the publish and the npmjs leg on `ships`, nothing else: after a skip
+`package.json` holds the newest version, so the registry check and the
+`packages_updated` dispatch run as they do on a re-run. A lockstep group is
+one step with every member in `package-dirs`. `packer: npm` for a repo that
+publishes with `npm publish`.
 
 ## `wait-for-live` and `prune-prereleases`
 

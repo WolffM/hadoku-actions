@@ -213,3 +213,13 @@ test('readTarball reads a real .tgz', () => {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("each manifest's own gitHead counts as a SHA stamp without being passed", () => {
+	const prev = tree({ ...base('1.9.92', SHA_A), 'dist/index.js': `c="${SHA_A}";` });
+	const next = tree({ ...base('1.9.93', SHA_B), 'dist/index.js': `c="${SHA_B}";` });
+	assert.equal(compareTarballs(prev, next, { prevVersion: '1.9.92', nextVersion: '1.9.93' }).equal, true);
+	// A gitHead that is not a full SHA is never a stamp.
+	const p2 = tree({ 'package.json': manifest('1.9.92', 'abc1234'), 'dist/index.js': 'c="abc1234";' });
+	const n2 = tree({ 'package.json': manifest('1.9.93', 'def5678'), 'dist/index.js': 'c="def5678";' });
+	assert.equal(compareTarballs(p2, n2, { prevVersion: '1.9.92', nextVersion: '1.9.93' }).equal, false);
+});
