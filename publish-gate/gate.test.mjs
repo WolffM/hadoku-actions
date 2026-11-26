@@ -115,6 +115,11 @@ test('workflow_dispatch ships without looking', async () => {
 	const { out, record } = await f.run({ PUBLISH_GATE_MODE: 'enforce', GITHUB_EVENT_NAME: 'workflow_dispatch' });
 	assert.equal(out.ships, 'true');
 	assert.equal(record.reason, 'workflow_dispatch always ships');
+	// The action passes the event as an input, which wins over the runner's.
+	const viaInput = await f.run({ PUBLISH_GATE_MODE: 'enforce', PUBLISH_GATE_EVENT: 'workflow_dispatch' });
+	assert.equal(viaInput.out.ships, 'true');
+	const pinned = await f.run({ PUBLISH_GATE_EVENT: 'push', GITHUB_EVENT_NAME: 'workflow_dispatch' });
+	assert.equal(pinned.out.verdict, 'skip');
 });
 
 test('a never-published package ships', async () => {

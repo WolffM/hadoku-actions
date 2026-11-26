@@ -1231,6 +1231,7 @@ jobs:
         with:
           package-dirs: ${{ env.FAKE_REGISTRY }}/equal
           packer: ${{ env.FAKE_NPM }}
+          event: push
 
       - name: it would skip, and still ships
         env:
@@ -1247,6 +1248,7 @@ jobs:
         with:
           package-dirs: ${{ env.FAKE_REGISTRY }}/changed
           packer: ${{ env.FAKE_NPM }}
+          event: push
           mode: enforce
 
       - name: it ships, at the new version
@@ -1264,6 +1266,7 @@ jobs:
         with:
           package-dirs: ${{ env.FAKE_REGISTRY }}/equal
           packer: ${{ env.FAKE_NPM }}
+          event: push
           mode: enforce
 
       - name: it skips, and the workspace is back at the newest
@@ -1272,6 +1275,24 @@ jobs:
         run: |
           [ "$OUT" = false/skip/1.0.1 ] || { echo "::error::enforce: $OUT"; exit 1; }
           grep -q '"version": "1.0.1"' "$FAKE_REGISTRY/equal/package.json"
+
+      # The comparison cases above pin `event: push` so they compare whatever
+      # started this run. A dispatch ships without looking, in enforce too.
+      - name: enforce mode on a dispatch
+        id: dispatch
+        uses: ./publish-gate
+        env:
+          PUBLISH_GATE_NPM: ${{ env.FAKE_NPM }}
+        with:
+          package-dirs: ${{ env.FAKE_REGISTRY }}/changed
+          packer: ${{ env.FAKE_NPM }}
+          mode: enforce
+          event: workflow_dispatch
+
+      - name: it ships without comparing
+        env:
+          OUT: ${{ steps.dispatch.outputs.ships }}/${{ steps.dispatch.outputs.reason }}
+        run: '[ "$OUT" = "true/workflow_dispatch always ships" ] || { echo "::error::dispatch: $OUT"; exit 1; }'
 
       # A mistyped mode must fail, never read as report or as enforce.
       - name: an unknown mode is refused

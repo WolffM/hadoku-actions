@@ -144,7 +144,7 @@ export async function main(env = process.env, deps = {}) {
 
 	let result;
 	try {
-		result = await judge({ dirs, event: env.GITHUB_EVENT_NAME, io });
+		result = await judge({ dirs, event: env.PUBLISH_GATE_EVENT || env.GITHUB_EVENT_NAME, io });
 	} catch (e) {
 		result = { verdict: 'ship', reason: `error: ${e.message}`, members: [] };
 	}

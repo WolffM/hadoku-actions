@@ -30,6 +30,12 @@ inputs:
     description: The commit being published, recognised as a stamp. Default github.sha.
     required: false
     default: ${{ github.sha }}
+  event:
+    description: >-
+      The event this publish answers. 'workflow_dispatch' always ships (the
+      operator's "publish now"). Default github.event_name.
+    required: false
+    default: ${{ github.event_name }}
 
 outputs:
   ships:
@@ -65,4 +71,5 @@ runs:
         PUBLISH_GATE_MODE: ${{ inputs.mode }}
         PUBLISH_GATE_PACKER: ${{ inputs.packer }}
         PUBLISH_GATE_SHA: ${{ inputs.sha }}
+        PUBLISH_GATE_EVENT: ${{ inputs.event }}
       run: node "$GITHUB_ACTION_PATH/gate.mjs"
