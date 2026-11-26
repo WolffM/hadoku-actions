@@ -155,6 +155,7 @@ export async function main(env = process.env, deps = {}) {
 	out('ships', skip ? 'false' : 'true');
 	out('verdict', result.verdict);
 	out('version', version);
+	out('reason', result.reason.replace(/\s+/g, ' '));
 
 	// One line per run, fixed prefix, so the shadow period can collect every
 	// verdict from the check-run annotations without reading logs.

@@ -67,7 +67,7 @@ function fixture(packages) {
 			readFileSync(outFile, 'utf8')
 				.trim()
 				.split('\n')
-				.map((l) => l.split('='))
+				.map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)])
 		);
 		const record = JSON.parse(lines.at(-1).replace(/^::notice title=publish-gate \w+::/, ''));
 		return { out, record };
@@ -88,7 +88,7 @@ const demo = (opts = {}) => ({
 test('an equal tarball: report would skip and still ships', async () => {
 	const f = fixture(demo());
 	const { out, record } = await f.run();
-	assert.deepEqual(out, { ships: 'true', verdict: 'skip', version: '1.0.2' });
+	assert.deepEqual(out, { ships: 'true', verdict: 'skip', version: '1.0.2', reason: 'equal to the newest' });
 	assert.equal(record.reason, 'equal to the newest');
 	assert.equal(f.version(), '1.0.2', 'report mode never touches package.json');
 });
@@ -96,7 +96,7 @@ test('an equal tarball: report would skip and still ships', async () => {
 test('an equal tarball: enforce skips and sets the workspace back to the newest', async () => {
 	const f = fixture(demo());
 	const { out } = await f.run({ PUBLISH_GATE_MODE: 'enforce' });
-	assert.deepEqual(out, { ships: 'false', verdict: 'skip', version: '1.0.1' });
+	assert.deepEqual(out, { ships: 'false', verdict: 'skip', version: '1.0.1', reason: 'equal to the newest' });
 	assert.equal(f.version(), '1.0.1');
 });
 
@@ -105,7 +105,7 @@ test('a code change ships', async () => {
 		demo({ next: { 'package.json': manifest('@wolffm/demo', '1.0.2', SHA_B), 'dist/a.js': 'x=2;' } })
 	);
 	const { out, record } = await f.run({ PUBLISH_GATE_MODE: 'enforce' });
-	assert.deepEqual(out, { ships: 'true', verdict: 'ship', version: '1.0.2' });
+	assert.deepEqual(out, { ships: 'true', verdict: 'ship', version: '1.0.2', reason: 'changed package/dist/a.js' });
 	assert.equal(record.reason, 'changed package/dist/a.js');
 	assert.equal(f.version(), '1.0.2');
 });
@@ -136,6 +136,7 @@ test('a newest tarball that cannot be fetched ships', async () => {
 	const { out, record } = await f.run({ PUBLISH_GATE_MODE: 'enforce' });
 	assert.equal(out.ships, 'true');
 	assert.match(record.reason, /^error: Command failed/);
+	assert.match(out.reason, /^error: Command failed[^\n]*$/, 'the output is one line');
 });
 
 test('a committed minor bump ships', async () => {
@@ -203,7 +204,7 @@ const group = (changed) => ({
 test('a lockstep group whose only change is its sibling pins skips together', async () => {
 	const f = fixture(group(false));
 	const { out } = await f.run({ PUBLISH_GATE_MODE: 'enforce' });
-	assert.deepEqual(out, { ships: 'false', verdict: 'skip', version: '0.45.1' });
+	assert.deepEqual(out, { ships: 'false', verdict: 'skip', version: '0.45.1', reason: 'equal to the newest' });
 	assert.equal(f.version(0), '0.45.1');
 	assert.equal(f.version(1), '0.45.1');
 });

@@ -44,6 +44,11 @@ outputs:
   version:
     description: The version package.json now holds (the newest, after a skip).
     value: ${{ steps.gate.outputs.version }}
+  reason:
+    description: >-
+      Why, on one line: 'equal to the newest', the first difference, or the
+      rule that made it ship. 'error: ...' means it could not look.
+    value: ${{ steps.gate.outputs.reason }}
 
 # Runs AFTER next-version and the build, with the same registry setup and a
 # NODE_AUTH_TOKEN that can read the package (setup-pnpm). It packs the
