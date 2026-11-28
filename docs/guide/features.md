@@ -389,7 +389,13 @@ npmjs.
 
 **Limits**: a publish to npmjs is permanent — an unpublish is only honored for
 72 hours and a version number can never be reused — so `dry-run: 'true'` on
-either half is the only way to preview the result before it ships. Each
+either half is the only way to preview the result before it ships. A refused
+pack fails the calling step. A caller that softens that with
+`continue-on-error` must not compute it from `steps.*`: on a `uses:` step the
+runner reads `steps` as empty there, so the condition is always true. That is
+how hadoku-cardtable's live game-server publish was refused for a day and
+still went green and reported success (issue #12, measured in selftest probes
+on runner 2.338.2). Each
 `@hadoku/*` package must separately register this repo and the calling
 workflow file as its trusted publisher on npmjs before its first real
 publish.

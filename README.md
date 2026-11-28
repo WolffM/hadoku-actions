@@ -335,6 +335,20 @@ jobs:
           started-at: ${{ env.JOB_STARTED_AT }}
 ```
 
+A pack the leak gate refuses fails the step. To make it advisory (a dry run
+before a first publish), write `continue-on-error` from `vars`, `matrix` or
+`env`, never `steps.*`. On a `uses:` step the runner reads `steps` as empty
+there, so `${{ steps.x.outputs.live != 'true' }}` is always true and a refused
+live publish goes green (issue #12):
+
+```yaml
+      - uses: WolffM/hadoku-actions/publish-npmjs@v1
+        continue-on-error: ${{ vars.NPMJS_ROOMS_CLIENT != 'live' }}
+        with:
+          package-dir: packages/rooms-client
+          dry-run: ${{ vars.NPMJS_ROOMS_CLIENT != 'live' }}
+```
+
 Each package must name that repo and workflow file as its trusted
 publisher, once:
 `npm trust github @hadoku/<name> --repo WolffM/<repo> --file <workflow>.yml --allow-publish`.

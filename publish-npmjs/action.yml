@@ -30,6 +30,15 @@ description: >-
 #
 # Needs node and pnpm on PATH (setup-pnpm), and the package already built: it
 # packs exactly what `pnpm publish` would, including workspace: resolution.
+#
+# A REFUSAL FAILS THE CALLING STEP. A caller that makes it advisory, say for a
+# dry run before the package's first publish, must not write that
+# `continue-on-error` from `steps.*`. On a `uses:` step the runner reads `steps`
+# as empty there (it does on a `run:` step), so
+# `${{ steps.x.outputs.live != 'true' }}` is always true. That is how cardtable's
+# live game-server publish was refused for a day and still went green and
+# reported success (issue #12). Use `vars`, `matrix` or `env` there instead,
+# e.g. `continue-on-error: ${{ vars.NPMJS_X != 'live' }}`.
 
 inputs:
   package-dir:

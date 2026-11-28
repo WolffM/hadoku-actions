@@ -1129,6 +1129,41 @@ jobs:
           [ "$NAME" = '@hadoku/themes' ] || { echo "::error::name=$NAME"; exit 1; }
           [ "$VERSION" = "0.0.0-selftest.$GITHUB_RUN_ID" ] || { echo "::error::version=$VERSION"; exit 1; }
 
+  # A pack the leak gate refuses fails the step that called the action. The
+  # `continue-on-error: true` here exists only so the next step can read the
+  # outcome. Issue #12: cardtable's game-server job went green while publishing
+  # nothing, because its own continue-on-error read `steps.*`, which a `uses:`
+  # step sees as empty (see the note in publish-npmjs/action.yml).
+  publish-npmjs-refused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: corepack enable
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      - name: a package that names a fleet host
+        run: |
+          mkdir -p "$RUNNER_TEMP/refused/dist"
+          printf '{"name":"@wolffm/themes","version":"0.0.0-selftest.%s","files":["dist"]}\n' "$GITHUB_RUN_ID" > "$RUNNER_TEMP/refused/package.json"
+          echo 'export const host = "hokon";' > "$RUNNER_TEMP/refused/dist/index.js"
+      - id: refused
+        continue-on-error: true
+        uses: ./publish-npmjs
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        with:
+          package-dir: ${{ runner.temp }}/refused
+      - name: the refusal failed the step
+        env:
+          OUTCOME: ${{ steps.refused.outcome }}
+        run: |
+          [ "$OUTCOME" = failure ] || { echo "::error::a refused pack ended $OUTCOME"; exit 1; }
+          echo "refused pack failed the step, as it must"
+
   publish-npmjs-publish:
     needs: publish-npmjs-stage
     runs-on: ubuntu-latest
